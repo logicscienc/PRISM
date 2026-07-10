@@ -1,0 +1,32 @@
+@import "tailwindcss";
+:root {
+  --font-heading: "Space Grotesk", sans-serif;
+  --font-body: "Inter", sans-serif;
+}
+
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+
+ 
+  font-feature-settings: 'pnum' on, 'lnum' on;
+}
+
+html {
+  overflow-x: clip;
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  overflow-x: clip;
+  background: #0a0a0a;
+  font-family: 'Syne', sans-serif;
+}
+
+.stroke-text {
+  -webkit-text-stroke: 1px white;
+}
