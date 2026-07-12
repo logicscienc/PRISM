@@ -910,3 +910,1040 @@ At this stage the frontend knows:
 - Which Pull Request the developer wants to review
 
 The next step is starting the AI review process.
+
+
+---
+
+# AI Review APIs
+
+This is the core feature of PRISM.
+
+Once a developer selects a Pull Request and clicks **Review**, the backend begins an AI-powered review process.
+
+Unlike authentication or repository APIs, this operation may take several seconds because it involves:
+
+- Fetching changed files
+- Filtering unnecessary files
+- Preparing an AI prompt
+- Calling the OpenAI API
+- Processing AI responses
+- Saving the final review
+
+Since this process is time-consuming, the backend should **not** keep the frontend waiting.
+
+Instead, it immediately creates a review job and processes it asynchronously.
+
+---
+
+# AI Review Flow
+
+```text
+Developer clicks Review
+        │
+        ▼
+POST /api/reviews
+        │
+        ▼
+Create Review Record
+(Status = queued)
+        │
+        ▼
+Return reviewId immediately
+        │
+        ▼
+Background Review Process Starts
+        │
+        ▼
+Fetch Changed Files
+        │
+        ▼
+Filter Files
+        │
+        ▼
+Build Prompt
+        │
+        ▼
+Call OpenAI
+        │
+        ▼
+Receive AI Response
+        │
+        ▼
+Save Review
+(Status = completed)
+```
+
+---
+
+## Why Return Immediately?
+
+Generating an AI review may take anywhere from a few seconds to over a minute.
+
+If the frontend waits for the entire process:
+
+- The browser appears frozen.
+- The user receives no feedback.
+- Long-running HTTP requests are more likely to fail.
+
+Instead, PRISM returns immediately with a review identifier.
+
+Example Response
+
+```json
+{
+    "success": true,
+    "data": {
+        "reviewId": "review_123",
+        "status": "queued"
+    }
+}
+```
+
+The frontend can immediately navigate to:
+
+```text
+/reviews/review_123
+```
+
+and display the current progress.
+
+---
+
+# Review Lifecycle
+
+Every review moves through a lifecycle.
+
+```text
+queued
+    │
+    ▼
+processing
+    │
+ ┌──┴───────────────┐
+ │                  │
+ ▼                  ▼
+completed        failed
+                     │
+                     ▼
+              Error Message
+```
+
+If the user stops the review:
+
+```text
+processing
+      │
+      ▼
+cancelled
+```
+
+---
+
+## Review Status Values
+
+Possible review statuses:
+
+| Status | Description |
+|---------|-------------|
+| queued | Review has been created and is waiting to start |
+| processing | AI review is currently running |
+| completed | Review finished successfully |
+| failed | Review failed because of an unexpected error |
+| cancelled | User stopped the review |
+
+---
+
+## Learning Note
+
+Initially we only considered:
+
+- processing
+- completed
+- cancelled
+
+During the design phase we realized another important state was required.
+
+### queued
+
+This allows PRISM to create the review immediately while the actual AI processing starts shortly afterward.
+
+We also decided **not** to create separate statuses such as:
+
+- github_failed
+- openai_failed
+
+Instead, all failures use:
+
+```text
+failed
+```
+
+with an accompanying error message.
+
+Example:
+
+```text
+Status:
+failed
+
+Error:
+GitHub API rate limit exceeded.
+```
+
+This keeps the review lifecycle simple.
+
+---
+
+# Start AI Review
+
+## Endpoint
+
+```http
+POST /api/reviews
+```
+
+---
+
+## Purpose
+
+Start a new AI review.
+
+---
+
+## Request
+
+```json
+{
+    "owner": "maya",
+    "repo": "PRISM",
+    "pullNumber": 42
+}
+```
+
+---
+
+## Backend Process
+
+Step 1
+
+Authenticate the user.
+
+↓
+
+Step 2
+
+Validate the request.
+
+↓
+
+Step 3
+
+Create a Review record.
+
+Status:
+
+```text
+queued
+```
+
+↓
+
+Step 4
+
+Return the Review ID.
+
+↓
+
+Step 5
+
+Start the AI review process in the background.
+
+---
+
+## Example Response
+
+```json
+{
+    "success": true,
+    "data": {
+        "reviewId": "review_123",
+        "status": "queued"
+    }
+}
+```
+
+---
+
+# Fetch Changed Files
+
+The backend calls GitHub.
+
+```http
+GET /repos/{owner}/{repo}/pulls/{pull_number}/files
+```
+
+GitHub returns every changed file inside the Pull Request.
+
+Example:
+
+```text
+src/login.ts
+
+Navbar.tsx
+
+README.md
+
+package-lock.json
+
+logo.png
+```
+
+---
+
+# File Filtering
+
+Not every file should be sent to the AI.
+
+Files that provide little or no review value should be skipped.
+
+Examples:
+
+Images
+
+```text
+.png
+.jpg
+.svg
+```
+
+Lock Files
+
+```text
+package-lock.json
+
+pnpm-lock.yaml
+
+bun.lock
+```
+
+Generated Files
+
+```text
+dist/
+
+build/
+
+coverage/
+```
+
+Minified Files
+
+```text
+.min.js
+```
+
+Benefits:
+
+- Lower API cost
+- Faster review
+- Better AI focus
+- Smaller prompts
+
+---
+
+# Patch-Based Review
+
+The AI does not need the entire repository.
+
+Instead, PRISM reviews only the Pull Request changes.
+
+GitHub provides a **patch** for each modified file.
+
+Example
+
+```diff
+- const password = "123456"
++ const password = process.env.DB_PASSWORD
+```
+
+The patch contains exactly what changed.
+
+This greatly reduces token usage.
+
+---
+
+## Learning Note
+
+Originally we discussed sending entire files.
+
+After studying GitHub's Pull Request API we learned that GitHub already provides patches.
+
+Reviewing patches is:
+
+- Faster
+- Cheaper
+- More focused
+
+---
+
+# Large Pull Requests
+
+Some Pull Requests contain hundreds of changed files.
+
+Sending everything in a single AI request would:
+
+- Exceed token limits
+- Increase costs
+- Slow responses
+
+Instead, PRISM processes files in smaller chunks.
+
+Example
+
+```text
+Files 1–20
+        │
+        ▼
+AI Review
+
+Files 21–40
+        │
+        ▼
+AI Review
+
+Files 41–60
+        │
+        ▼
+AI Review
+```
+
+The backend keeps the context from previous chunks while reviewing later chunks.
+
+This ensures the AI maintains consistency across the entire Pull Request.
+
+---
+
+# Prompt Preparation
+
+Before calling OpenAI, the backend prepares a structured prompt.
+
+The prompt includes:
+
+- Repository name
+- Pull Request title
+- Pull Request description
+- Changed file names
+- File patches
+- Review instructions
+
+Example instructions:
+
+- Find security issues.
+- Suggest performance improvements.
+- Check code quality.
+- Identify edge cases.
+- Recommend best practices.
+
+---
+
+# OpenAI Request
+
+The backend sends the prepared prompt to the AI model.
+
+```text
+Backend
+      │
+      ▼
+OpenAI API
+      │
+      ▼
+AI Review
+```
+
+The frontend never communicates directly with OpenAI.
+
+---
+
+# Save Review
+
+Once the AI completes its analysis:
+
+Update Review
+
+```text
+Status:
+completed
+```
+
+Store:
+
+- Summary
+- Overall Score
+- Security Suggestions
+- Performance Suggestions
+- Code Quality Feedback
+- Best Practice Suggestions
+- Edge Cases
+- Full AI Response
+
+Saving reviews provides:
+
+- Review history
+- Faster loading
+- Lower OpenAI costs
+- Future analytics
+
+---
+
+# Review History
+
+## Endpoint
+
+```http
+GET /api/reviews
+```
+
+Purpose
+
+Return every review belonging to the authenticated user.
+
+The backend determines the user using the authenticated session.
+
+The frontend never sends a userId.
+
+---
+
+# Get Single Review
+
+## Endpoint
+
+```http
+GET /api/reviews/:id
+```
+
+Purpose
+
+Return one specific review.
+
+Before returning the review, the backend verifies that it belongs to the authenticated user.
+
+If ownership verification fails:
+
+```http
+403 Forbidden
+```
+
+---
+
+## Learning Note
+
+Initially we considered sending a user identifier from the frontend.
+
+Instead, the backend determines the current user from the authenticated session.
+
+This prevents users from requesting another person's reviews.
+
+---
+
+# Cancel Review
+
+## Endpoint
+
+```http
+POST /api/reviews/:id/cancel
+```
+
+Purpose
+
+Stop an AI review that is currently processing.
+
+The review is **not deleted**.
+
+Instead:
+
+```text
+processing
+      │
+      ▼
+cancelled
+```
+
+---
+
+## Learning Note
+
+Initially we considered:
+
+```http
+DELETE /api/reviews/:id
+```
+
+However, DELETE removes a resource permanently.
+
+Cancelling a review only changes its state.
+
+Using:
+
+```http
+POST /api/reviews/:id/cancel
+```
+
+better communicates the intention of the endpoint.
+
+---
+
+# Summary
+
+The AI review pipeline follows this sequence:
+
+```text
+Developer Clicks Review
+        │
+        ▼
+POST /api/reviews
+        │
+        ▼
+Create Review Record
+        │
+        ▼
+Return reviewId
+        │
+        ▼
+Fetch Changed Files
+        │
+        ▼
+Filter Files
+        │
+        ▼
+Prepare Prompt
+        │
+        ▼
+Chunk Large PRs
+        │
+        ▼
+Call OpenAI
+        │
+        ▼
+Receive AI Response
+        │
+        ▼
+Save Review
+        │
+        ▼
+Status = completed
+        │
+        ▼
+GET /api/reviews/:id
+        │
+        ▼
+Display AI Review
+```
+
+At this stage, the complete AI review pipeline has been designed.
+
+
+
+---
+
+# API Response Standard
+
+To keep the backend predictable and easy to use, every endpoint should follow the same response structure.
+
+## Success Response
+
+```json
+{
+    "success": true,
+    "message": "Repositories fetched successfully.",
+    "data": {}
+}
+```
+
+---
+
+## Error Response
+
+```json
+{
+    "success": false,
+    "message": "Repository not found."
+}
+```
+
+---
+
+## Why Use a Standard Response?
+
+Using the same response structure for every endpoint makes frontend development easier.
+
+Benefits:
+
+- Predictable API behavior
+- Easier error handling
+- Cleaner frontend code
+- Easier debugging
+
+---
+
+# HTTP Status Codes
+
+PRISM follows standard HTTP status codes.
+
+| Status Code | Meaning | Example |
+|-------------|----------|---------|
+| 200 | Success | Repository fetched |
+| 201 | Resource Created | Review created |
+| 400 | Bad Request | Missing pullNumber |
+| 401 | Unauthorized | User not logged in |
+| 403 | Forbidden | Review belongs to another user |
+| 404 | Not Found | Repository or Review not found |
+| 429 | Too Many Requests | Rate limit exceeded |
+| 500 | Internal Server Error | Unexpected backend error |
+
+---
+
+## Learning Note
+
+During the design phase we initially thought that missing request data should return:
+
+```http
+500 Internal Server Error
+```
+
+After discussing HTTP status codes, we corrected it.
+
+Missing request fields are caused by the client.
+
+Therefore the correct response is:
+
+```http
+400 Bad Request
+```
+
+A **500** error should only be used when the backend fails unexpectedly.
+
+---
+
+# Request Validation
+
+Every incoming request should be validated before processing.
+
+Example
+
+POST /api/reviews
+
+Required fields:
+
+- owner
+- repo
+- pullNumber
+
+If any required field is missing:
+
+```http
+400 Bad Request
+```
+
+Example
+
+```json
+{
+    "success": false,
+    "message": "pullNumber is required."
+}
+```
+
+Validation prevents unnecessary API calls and protects the backend from invalid data.
+
+---
+
+# Authentication Rules
+
+The following endpoints require authentication:
+
+```http
+GET /api/repositories
+
+GET /api/repositories/:owner/:repo/pulls
+
+POST /api/reviews
+
+GET /api/reviews
+
+GET /api/reviews/:id
+
+POST /api/reviews/:id/cancel
+```
+
+The backend authenticates users using the session cookie.
+
+The frontend never sends:
+
+- userId
+- sessionId
+- GitHub Access Token
+
+---
+
+# Authorization Rules
+
+Authentication answers:
+
+> "Who is the user?"
+
+Authorization answers:
+
+> "Can this user access this resource?"
+
+Example
+
+User A requests:
+
+```http
+GET /api/reviews/review123
+```
+
+Backend checks:
+
+```text
+Does review123 belong to User A?
+```
+
+If yes:
+
+```http
+200 OK
+```
+
+If no:
+
+```http
+403 Forbidden
+```
+
+---
+
+# Rate Limiting
+
+To protect PRISM from abuse, rate limiting should be applied.
+
+Examples
+
+Authentication
+
+```text
+10 requests / minute
+```
+
+Review Creation
+
+```text
+5 reviews / minute
+```
+
+Repository Fetch
+
+```text
+60 requests / minute
+```
+
+Benefits
+
+- Prevent spam
+- Protect OpenAI usage
+- Reduce unnecessary costs
+- Improve server stability
+
+---
+
+# Logging
+
+The backend should log important events.
+
+Examples
+
+Authentication
+
+```text
+User maya logged in.
+```
+
+Review Started
+
+```text
+Review review_123 started.
+```
+
+Review Completed
+
+```text
+Review review_123 completed.
+```
+
+Review Failed
+
+```text
+GitHub API rate limit exceeded.
+```
+
+These logs help during debugging and production monitoring.
+
+---
+
+# Error Handling Strategy
+
+Whenever an unexpected error occurs:
+
+Backend should
+
+- Catch the exception
+- Log the error
+- Return a safe error message
+
+Avoid exposing:
+
+- Stack traces
+- Database errors
+- API keys
+- Internal implementation details
+
+Example
+
+Instead of:
+
+```text
+PrismaClientKnownRequestError...
+```
+
+Return
+
+```json
+{
+    "success": false,
+    "message": "Something went wrong. Please try again later."
+}
+```
+
+---
+
+# Security Best Practices
+
+PRISM should follow these security principles:
+
+- Never expose API keys
+- Never expose GitHub tokens
+- Store secrets in environment variables
+- Validate every request
+- Authenticate every protected endpoint
+- Authorize every resource access
+- Use HTTPS in production
+- Use HTTP-only cookies for sessions
+- Sanitize user input
+- Never trust frontend data
+
+---
+
+# Complete Backend Flow
+
+```text
+Developer
+      │
+      ▼
+Landing Page
+      │
+      ▼
+Connect GitHub
+      │
+      ▼
+GET /api/auth/github
+      │
+      ▼
+GitHub OAuth
+      │
+      ▼
+GET /api/auth/github/callback
+      │
+      ▼
+Create Session
+      │
+      ▼
+Dashboard
+      │
+      ▼
+GET /api/repositories
+      │
+      ▼
+Select Repository
+      │
+      ▼
+GET /api/repositories/:owner/:repo/pulls
+      │
+      ▼
+Select Pull Request
+      │
+      ▼
+POST /api/reviews
+      │
+      ▼
+Background Processing
+      │
+      ▼
+Fetch Changed Files
+      │
+      ▼
+Filter Files
+      │
+      ▼
+Prepare Prompt
+      │
+      ▼
+Chunk Large PR
+      │
+      ▼
+Call OpenAI
+      │
+      ▼
+Save Review
+      │
+      ▼
+GET /api/reviews/:id
+      │
+      ▼
+Display Review
+```
+
+---
+
+# API Endpoint Summary
+
+| Method | Endpoint | Purpose |
+|----------|----------|----------|
+| GET | /api/auth/github | Start GitHub OAuth |
+| GET | /api/auth/github/callback | Handle OAuth callback |
+| GET | /api/auth/me | Get current user |
+| POST | /api/auth/logout | Logout user |
+| GET | /api/repositories | Get repositories |
+| GET | /api/repositories/:owner/:repo/pulls | Get pull requests |
+| POST | /api/reviews | Start AI review |
+| GET | /api/reviews | Get review history |
+| GET | /api/reviews/:id | Get single review |
+| POST | /api/reviews/:id/cancel | Cancel review |
+
+---
+
+# Conclusion
+
+This document defines the complete backend architecture for PRISM v1.
+
+By designing the backend before implementation, we have:
+
+- Defined all API endpoints.
+- Established authentication and authorization rules.
+- Planned the AI review pipeline.
+- Standardized API responses.
+- Defined validation and error handling.
+- Identified security best practices.
+
+The next phase of the project is designing the database schema, where these API endpoints will be connected to persistent data storage.
+
+Once the database design is complete, implementation can begin with a clear understanding of how every backend component should interact.
