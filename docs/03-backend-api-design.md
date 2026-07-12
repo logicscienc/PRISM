@@ -427,3 +427,486 @@ Authentication is complete when:
 - User is redirected to the dashboard
 
 At this point, all future requests use the session cookie for authentication.
+
+
+
+
+
+
+---
+
+# Repository APIs
+
+After authentication is complete, the developer reaches the dashboard.
+
+The dashboard displays all repositories the authenticated user has access to.
+
+The frontend never calls GitHub directly.
+
+Instead, the request always follows this path:
+
+```text
+Frontend
+      │
+GET /api/repositories
+      │
+      ▼
+PRISM Backend
+      │
+      ▼
+GitHub API
+      │
+      ▼
+Transform Response
+      │
+      ▼
+Frontend
+```
+
+---
+
+## 1. Get User Repositories
+
+### Endpoint
+
+```http
+GET /api/repositories
+```
+
+### Purpose
+
+Return all repositories accessible to the currently authenticated user.
+
+---
+
+### Authentication
+
+Required
+
+The backend identifies the user using the session cookie.
+
+The frontend does **not** send:
+
+```text
+userId
+```
+
+---
+
+### Backend Process
+
+Step 1
+
+Authenticate the user.
+
+↓
+
+Step 2
+
+Retrieve the GitHub Access Token (or generate one if using a GitHub App in future versions).
+
+↓
+
+Step 3
+
+Call GitHub
+
+```http
+GET /user/repos
+```
+
+↓
+
+Step 4
+
+Receive GitHub's response.
+
+↓
+
+Step 5
+
+Extract only the fields required by PRISM.
+
+↓
+
+Step 6
+
+Return the cleaned response to the frontend.
+
+---
+
+### Why Don't We Return GitHub's Full Response?
+
+GitHub returns hundreds of fields for every repository.
+
+Example:
+
+- Node ID
+- URLs
+- Fork information
+- Permissions
+- Branch URLs
+- Events URL
+- Clone URL
+- Git URL
+- Archive URLs
+- Hooks URL
+- Downloads URL
+- Visibility
+- Owner
+- Watchers
+- Topics
+- Many more...
+
+PRISM only needs a small subset.
+
+Returning the entire response would:
+
+- Increase payload size
+- Slow down the frontend
+- Expose unnecessary information
+- Make frontend development harder
+
+Therefore the backend acts as a translator.
+
+---
+
+### Example GitHub Response (Simplified)
+
+```json
+{
+  "id": 123,
+  "name": "PRISM",
+  "full_name": "maya/PRISM",
+  "private": false,
+  "language": "TypeScript",
+  "owner": {
+    "login": "maya"
+  },
+  "updated_at": "...",
+  "fork": false,
+  "permissions": {},
+  "...": "hundreds more fields"
+}
+```
+
+---
+
+### Response Sent to Frontend
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 123,
+      "name": "PRISM",
+      "owner": "maya",
+      "visibility": "public",
+      "language": "TypeScript",
+      "updatedAt": "2026-07-12T12:30:00Z"
+    }
+  ]
+}
+```
+
+---
+
+### Learning Note
+
+During the design phase we discussed sending GitHub's entire response directly to the frontend.
+
+We decided against this.
+
+Instead, the backend transforms GitHub's response into a smaller, frontend-friendly format.
+
+This keeps the API stable even if GitHub changes its response structure in the future.
+
+---
+
+# Pull Request APIs
+
+Once the developer selects a repository, PRISM loads all Pull Requests for that repository.
+
+Flow
+
+```text
+Dashboard
+      │
+Select Repository
+      │
+      ▼
+GET /api/repositories/:owner/:repo/pulls
+      │
+      ▼
+Backend
+      │
+      ▼
+GitHub API
+      │
+      ▼
+Transform Response
+      │
+      ▼
+Frontend
+```
+
+---
+
+## 2. Get Pull Requests
+
+### Endpoint
+
+```http
+GET /api/repositories/:owner/:repo/pulls
+```
+
+Example
+
+```http
+GET /api/repositories/maya/PRISM/pulls
+```
+
+---
+
+### Purpose
+
+Return all Pull Requests for the selected repository.
+
+---
+
+### Why Use owner and repo?
+
+GitHub identifies repositories using:
+
+```text
+owner/repository
+```
+
+Example:
+
+```text
+vercel/next.js
+
+facebook/react
+
+maya/PRISM
+```
+
+Using both values guarantees the correct repository is selected.
+
+---
+
+### Backend Process
+
+Authenticate User
+
+↓
+
+Receive owner and repo
+
+↓
+
+Call GitHub
+
+```http
+GET /repos/{owner}/{repo}/pulls
+```
+
+↓
+
+Receive Pull Requests
+
+↓
+
+Transform Response
+
+↓
+
+Return Clean Data
+
+---
+
+### GitHub Returns
+
+GitHub returns many fields.
+
+Examples:
+
+- Title
+- Number
+- State
+- Body
+- Merge Commit SHA
+- Labels
+- Milestone
+- Assignees
+- Requested Reviewers
+- URLs
+- Head Branch
+- Base Branch
+- Mergeable
+- Comments
+- Commits
+- Many more...
+
+---
+
+### PRISM Returns
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "number": 42,
+      "title": "Fix Login Bug",
+      "author": "maya",
+      "status": "open",
+      "createdAt": "...",
+      "changedFiles": 8
+    }
+  ]
+}
+```
+
+---
+
+### Learning Note
+
+Initially we thought the frontend would receive GitHub's complete Pull Request response.
+
+Instead, the backend extracts only the information required to build the PR cards.
+
+This reduces bandwidth and keeps the frontend independent from GitHub's API structure.
+
+---
+
+# Pagination
+
+Large repositories may contain hundreds of Pull Requests.
+
+Loading everything at once is inefficient.
+
+Instead, PRISM supports pagination.
+
+Example
+
+```http
+GET /api/repositories/maya/PRISM/pulls?page=1&limit=20
+```
+
+The backend forwards these values to GitHub when possible and returns only the requested page.
+
+Benefits:
+
+- Faster loading
+- Less bandwidth
+- Better user experience
+
+---
+
+# Validation
+
+The backend validates every request.
+
+Repository Validation
+
+Missing owner
+
+```http
+400 Bad Request
+```
+
+Missing repository name
+
+```http
+400 Bad Request
+```
+
+Repository not found
+
+```http
+404 Not Found
+```
+
+User has no permission
+
+```http
+403 Forbidden
+```
+
+GitHub API unavailable
+
+```http
+500 Internal Server Error
+```
+
+---
+
+# Security Notes
+
+The frontend never receives:
+
+- GitHub Access Token
+- Client Secret
+- OAuth Credentials
+- Session Information
+
+Only the backend communicates with GitHub.
+
+This protects sensitive credentials from being exposed to the browser.
+
+---
+
+# Summary
+
+Repository Flow
+
+```text
+Dashboard
+      │
+      ▼
+GET /api/repositories
+      │
+      ▼
+Backend
+      │
+      ▼
+GitHub
+      │
+      ▼
+Transform Response
+      │
+      ▼
+Frontend
+```
+
+Pull Request Flow
+
+```text
+Repository Selected
+        │
+        ▼
+GET /api/repositories/:owner/:repo/pulls
+        │
+        ▼
+Backend
+        │
+        ▼
+GitHub
+        │
+        ▼
+Transform Response
+        │
+        ▼
+Frontend
+```
+
+At this stage the frontend knows:
+
+- Which repositories exist
+- Which Pull Requests exist
+- Which Pull Request the developer wants to review
+
+The next step is starting the AI review process.
