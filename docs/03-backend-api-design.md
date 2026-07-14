@@ -94,35 +94,48 @@ PRISM uses **GitHub OAuth** for authentication.
 The backend manages the complete OAuth flow.
 
 ```text
-Developer
-      │
-      ▼
-Connect GitHub
-      │
-      ▼
-GitHub Login
-      │
-      ▼
-Permission Screen
-      │
-      ▼
-GitHub returns Authorization Code
-      │
-      ▼
-Backend exchanges Code
-for Access Token
-      │
-      ▼
-Backend fetches GitHub Profile
-      │
-      ▼
-Create/Login User
-      │
-      ▼
-Create Session
-      │
-      ▼
-Redirect to Dashboard
+User clicks Connect GitHub
+            │
+            ▼
+Backend generates state
+            │
+            ▼
+Backend redirects to GitHub
+(client_id + state)
+            │
+            ▼
+User grants permission
+            │
+            ▼
+GitHub redirects back
+(code + state)
+            │
+            ▼
+Backend verifies state
+            │
+            ▼
+Backend sends code + client_secret to GitHub
+            │
+            ▼
+GitHub returns Access Token
+            │
+            ▼
+Backend fetches GitHub profile
+            │
+            ▼
+Backend creates/logs in user
+            │
+            ▼
+Backend creates session
+            │
+            ▼
+Backend sends session cookie
+            │
+            ▼
+Browser stores cookie
+            │
+            ▼
+Every future request automatically sends the cookie
 ```
 
 ---
