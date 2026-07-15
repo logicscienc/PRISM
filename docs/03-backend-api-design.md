@@ -1957,6 +1957,4 @@ By designing the backend before implementation, we have:
 - Defined validation and error handling.
 - Identified security best practices.
 
-The next phase of the project is designing the database schema, where these API endpoints will be connected to persistent data storage.
 
-Once the database design is complete, implementation can begin with a clear understanding of how every backend component should interact.
