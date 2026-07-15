@@ -6,6 +6,10 @@
 
 ---
 
+# Database Schema
+
+![PRISM Database Schema](./images/ProductionSchema.png)
+
 # Why do we need a database?
 
 PRISM integrates with GitHub, but not everything should be stored inside our own database.
