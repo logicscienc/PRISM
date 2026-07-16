@@ -980,6 +980,9 @@ Developer clicks Review
 POST /api/reviews
         │
         ▼
+Next.js Route Handler
+        │
+        ▼
 Create Review Record
 (Status = queued)
         │
