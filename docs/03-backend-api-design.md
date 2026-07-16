@@ -37,6 +37,22 @@ GitHub API     OpenAI API
 
 ---
 
+## Architecture Note
+
+Although this document refers to "server" responsibilities, PRISM v1 does not use a separate Express backend.
+
+Instead, all server-side logic is implemented using **Next.js Route Handlers** under the `app/api` directory.
+
+This includes:
+
+- GitHub OAuth
+- Repository APIs
+- Pull Request APIs
+- AI Review APIs
+- Session Management
+
+From the frontend's perspective, these endpoints behave like a traditional REST API while keeping the application in a single Next.js project.
+
 # Backend Responsibilities
 
 The backend acts as the central controller of the application.
