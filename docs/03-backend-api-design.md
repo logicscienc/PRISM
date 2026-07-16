@@ -113,10 +113,10 @@ The backend manages the complete OAuth flow.
 User clicks Connect GitHub
             │
             ▼
-Backend generates state
+Server generates state
             │
             ▼
-Backend redirects to GitHub
+Route Handler redirects to GitHub
 (client_id + state)
             │
             ▼
@@ -127,7 +127,7 @@ GitHub redirects back
 (code + state)
             │
             ▼
-Backend verifies state
+Server verifies state
             │
             ▼
 Backend sends code + client_secret to GitHub
@@ -142,7 +142,7 @@ Backend fetches GitHub profile
 Backend creates/logs in user
             │
             ▼
-Backend creates session
+Server creates session
             │
             ▼
 Backend sends session cookie
@@ -475,14 +475,21 @@ The frontend never calls GitHub directly.
 Instead, the request always follows this path:
 
 ```text
-Frontend
+Browser
+
       │
+      ▼
+
 GET /api/repositories
+
       │
       ▼
-PRISM Backend
+
+Next.js Route Handler
+
       │
       ▼
+
 GitHub API
       │
       ▼
@@ -668,7 +675,7 @@ Select Repository
 GET /api/repositories/:owner/:repo/pulls
       │
       ▼
-Backend
+Route Handler
       │
       ▼
 GitHub API
