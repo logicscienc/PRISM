@@ -8,7 +8,7 @@
 
 # Overview
 
-The backend is responsible for:
+The server-side API is responsible for:
 
 - Authenticating users with GitHub OAuth
 - Managing user sessions
@@ -20,15 +20,15 @@ The backend is responsible for:
 - Returning review results
 - Protecting user data
 
-The frontend **never communicates directly** with GitHub or OpenAI.
+The browser never communicates directly with GitHub or OpenAI.
 
-All requests pass through the backend.
+All requests pass through PRISM's server-side API (Next.js Route Handlers).
 
 ```text
-Frontend
+Browser
     │
     ▼
-PRISM Backend
+PRISM Server (Next.js Route Handlers)
     │
  ┌──┴──────────────┐
  ▼                 ▼
@@ -53,7 +53,7 @@ This includes:
 
 From the frontend's perspective, these endpoints behave like a traditional REST API while keeping the application in a single Next.js project.
 
-# Backend Responsibilities
+# Server Responsibilities
 
 The backend acts as the central controller of the application.
 
@@ -172,7 +172,7 @@ GET /api/auth/github
 
 Starts the GitHub OAuth flow.
 
-### Backend Process
+### Route Handler Process
 
 - Generate a random state value
 - Save the state temporarily
