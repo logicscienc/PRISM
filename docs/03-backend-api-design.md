@@ -763,14 +763,36 @@ Select Repository
       ▼
 GET /api/repositories/:owner/:repo/pulls
       │
+      │ + session_id cookie
       ▼
-Route Handler
+Next.js Route Handler
+      │
+      ▼
+requireUser()
+      │
+      ▼
+getCurrentUser()
+      │
+      ▼
+Database
+      │
+      ▼
+User
+      │
+      ▼
+githubAccessToken
       │
       ▼
 GitHub API
+
+GET /repos/{owner}/{repo}/pulls
+
       │
       ▼
 Transform Response
+      │
+      ▼
+Return Clean Data
       │
       ▼
 Frontend
@@ -828,11 +850,29 @@ Authenticate User
 
 ↓
 
-Receive owner and repo
+Validate owner and repo
+
+↓
+
+Read GitHub Access Token
 
 ↓
 
 Call GitHub
+
+GET /repos/{owner}/{repo}/pulls
+
+↓
+
+Receive Pull Requests
+
+↓
+
+Transform Response
+
+↓
+
+Return Clean Data
 
 ```http
 GET /repos/{owner}/{repo}/pulls
@@ -918,7 +958,7 @@ Instead, PRISM supports pagination.
 Example
 
 ```http
-GET /api/repositories/maya/PRISM/pulls?page=1&limit=20
+GET /api/repositories/maya/PRISM/pulls?page=1&per_page=20
 ```
 
 The backend forwards these values to GitHub when possible and returns only the requested page.
