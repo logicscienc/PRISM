@@ -466,37 +466,52 @@ At this point, all future requests use the session cookie for authentication.
 
 # Repository APIs
 
-After authentication is complete, the developer reaches the dashboard.
+After the user successfully logs in with GitHub, they are redirected to the dashboard.
 
-The dashboard displays all repositories the authenticated user has access to.
+The dashboard displays all GitHub repositories that the authenticated user has access to.
 
-The frontend never calls GitHub directly.
+The frontend never communicates with GitHub directly.
 
-Instead, the request always follows this path:
+Instead, every request follows this flow:
 
 ```text
 Browser
-
-      │
-      ▼
-
-GET /api/repositories
-
-      │
-      ▼
-
+    │
+    │  GET /api/repositories
+    │  + session_id cookie
+    ▼
 Next.js Route Handler
-
-      │
-      ▼
-
+    │
+    ▼
+requireUser()
+    │
+    ▼
+getCurrentUser()
+    │
+    ▼
+Database
+    │
+    ▼
+User
+    │
+    ▼
+githubAccessToken
+    │
+    ▼
 GitHub API
-      │
-      ▼
+    │
+    │  GET /user/repos
+    ▼
+Repositories
+    │
+    ▼
 Transform Response
-      │
-      ▼
-Frontend
+    │
+    ▼
+Return Clean Data
+    │
+    ▼
+Browser
 ```
 
 ---
@@ -511,64 +526,138 @@ GET /api/repositories
 
 ### Purpose
 
-Return all repositories accessible to the currently authenticated user.
+Return all GitHub repositories that the currently authenticated user can access.
 
 ---
 
 ### Authentication
 
-Required
+Authentication is required.
 
-The backend identifies the user using the session cookie.
+The browser automatically sends the session_id cookie with the request.
 
-The frontend does **not** send:
+The frontend never sends:
 
 ```text
 userId
+githubAccessToken
 ```
+The backend identifies the user using the session cookie.
+---
+
+## Backend Process
+
+### Step 1 — Browser sends the request
+
+The dashboard requests:
+
+```http
+GET /api/repositories
+```
+
+The browser automatically includes the `session_id` cookie with the request.
 
 ---
 
-### Backend Process
+### Step 2 — Verify the user
 
-Step 1
+The route handler calls:
 
-Authenticate the user.
-
-↓
-
-Step 2
-
-Retrieve the GitHub Access Token (or generate one if using a GitHub App in future versions).
-
-↓
-
-Step 3
-
-Call GitHub
-
-```http
-GET /user/repos
+```javascript
+requireUser();
 ```
 
-↓
+This ensures the request is authenticated.
 
-Step 4
+If the user is not logged in, they are redirected to the login page.
 
-Receive GitHub's response.
+---
 
-↓
+### Step 3 — Find the current user
 
-Step 5
+`requireUser()` internally calls:
 
-Extract only the fields required by PRISM.
+```javascript
+getCurrentUser();
+```
 
-↓
+This function:
 
-Step 6
+- Reads the `session_id` cookie.
+- Finds the session in the database.
+- Checks whether the session has expired.
+- Finds the corresponding user.
 
-Return the cleaned response to the frontend.
+---
 
+### Step 4 — Read the GitHub Access Token
+
+Once the user is found, the backend reads:
+
+```text
+githubAccessToken
+```
+
+from the **User** table.
+
+The access token never leaves the server.
+
+---
+
+### Step 5 — Call GitHub
+
+Using the stored access token, the backend sends:
+
+```http
+GET https://api.github.com/user/repos
+```
+
+to GitHub.
+
+---
+
+### Step 6 — Receive GitHub's Response
+
+GitHub returns every repository the authenticated user has permission to access.
+
+The response contains many fields.
+
+---
+
+### Step 7 — Transform the Response
+
+Instead of returning GitHub's entire response, the backend extracts only the information PRISM needs.
+
+This:
+
+- Reduces payload size.
+- Keeps the frontend simple.
+- Hides unnecessary information.
+- Protects the frontend from future GitHub API changes.
+
+---
+
+### Step 8 — Return the Response
+
+The backend returns a clean JSON response to the browser.
+
+Example:
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 123,
+      "name": "PRISM",
+      "owner": "maya",
+      "visibility": "public",
+      "language": "TypeScript",
+      "updatedAt": "2026-07-12T12:30:00Z"
+    }
+  ]
+}
+```
 ---
 
 ### Why Don't We Return GitHub's Full Response?
