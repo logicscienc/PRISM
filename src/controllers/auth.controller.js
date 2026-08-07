@@ -53,7 +53,7 @@ export async function githubCallback(request) {
   const code = request.nextUrl.searchParams.get("code");
 const state = request.nextUrl.searchParams.get("state");
 
-// now we need our originally generated state to compare it with the state we received from github. If they match, it means the request is legitimate and not a CSRF attack. If they don't match, we should rejact it. 
+// now we need our originally generated state to Compare the state returned by GitHub with the state we stored in the cookie. If they don't match, reject the request because it may be a CSRF attack.
   const cookieStore = await cookies();
 
     const storedState = cookieStore.get("oauth_state")?.value;
@@ -64,7 +64,7 @@ const state = request.nextUrl.searchParams.get("state");
 }
 
 if(state !== storedState) {
-   throw new Error("Invalid OAuth state.");
+   throw new Error("Missing OAuth code or state.");
 }
 
 // now once the state match: we will delete the state cookie because that state has already been used.
@@ -75,6 +75,10 @@ cookieStore.delete("oauth_state");
 const clientId = process.env.GITHUB_CLIENT_ID;
 const clientSecret = process.env.GITHUB_CLIENT_SECRET;
 const callbackUrl = process.env.GITHUB_CALLBACK_URL;
+
+if (!clientId || !clientSecret || !callbackUrl) {
+    throw new Error("GitHub OAuth environment variables are missing.");
+}
 
 const response = await fetch(
     "https://github.com/login/oauth/access_token",
@@ -97,11 +101,15 @@ if (!response.ok) {
     throw new Error("Failed to get GitHub access token.");
 }
 
-// now ones we know github replied successfully, we open the package
+// Now that we know GitHub replied successfully,, we open the package
 // 1. Interview question why do we write await response.json()?
 // Ans 1. fetch() returns the complete HTTP response, not just the response body. The body is still in a raw format. Calling response.json() reads the body stream and converts the JSON returned by the server into a JavaScript object so we can access fields like access_token. 
 const tokenData = await response.json();
 const accessToken = tokenData.access_token;
+
+if (!accessToken) {
+    throw new Error("GitHub did not return an access token.");
+}
 
 
 const profileResponse = await fetch(
@@ -129,27 +137,61 @@ let user = await prisma.user.findUnique({
     },
 });
 
-// if this above code return null that mean user does not exist and we need to create new user
+// If no user is found, this GitHub account is logging in for the first time,
+// so create a new user record in the database.
 if (!user) {
-  user = await prisma.user.create({
-    data: {
-      githubUserId: String(profileData.id),
-      login: profileData.login,
-      name: profileData.name,
-      email: profileData.email,
-      avatarUrl: profileData.avatar_url,
-    },
-  });
+  // Insert a new row into the User table.
+ user = await prisma.user.create({
+  data: {
+    githubUserId: String(profileData.id),
+    login: profileData.login,
+    name: profileData.name,
+    email: profileData.email,
+    avatarUrl: profileData.avatar_url,
+    githubAccessToken: accessToken,
+  },
+});
+}
+else {
+    user = await prisma.user.update({
+        where: {
+            id: user.id,
+        },
+        data: {
+            login: profileData.login,
+            name: profileData.name,
+            email: profileData.email,
+            avatarUrl: profileData.avatar_url,
+            githubAccessToken: accessToken,
+        },
+    });
 }
 
+const sessionId = crypto.randomUUID();
+
+const expiresAt = new Date();
+
+expiresAt.setDate(expiresAt.getDate() + 7);
+
+// create a session in the db
+await prisma.session.create({
+  data: {
+    userId: user.id,
+    sessionId,
+    expiresAt,
+  },
+});
+
+// now we need to set the sessionId in a cookie. 
+cookieStore.set("session_id", sessionId, {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "lax",
+  expires: expiresAt,
+  path: "/",
+});
+
+redirect("/dashboard");
+
 }
 
-// Returns the currently authenticated user
-export async function getCurrentUser() {
-
-}
-
-// Logs the user out
-export async function logout() {
-
-}
