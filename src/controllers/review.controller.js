@@ -55,6 +55,19 @@ const review = await prisma.review.create({
     },
 });
 
+// Start the background AI review process.
+// The review has already been created with status QUEUED.
+// processReview(review.id) will:
+// 1. Update the review to PROCESSING
+// 2. Fetch Pull Request details
+// 3. Fetch changed files
+// 4. Filter unnecessary files
+// 5. Build the AI prompt
+// 6. Call the AI model
+// 7. Save the review results
+// 8. Update the review status to COMPLETED or FAILED
+processReview(review.id);
+
 
 
 

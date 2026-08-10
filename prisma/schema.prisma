@@ -103,9 +103,30 @@ model ReviewResult {
   bestPractices String
 
   rawResponse   String
+  findings      ReviewFinding[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   review         Review @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+}
+
+
+model ReviewFinding {
+  id             String   @id @default(cuid())
+
+  reviewResultId String
+
+  severity       String
+  file           String
+  line           Int?
+  category       String
+  message        String
+  suggestion     String?
+
+  createdAt      DateTime @default(now())
+
+  reviewResult   ReviewResult @relation(fields: [reviewResultId], references: [id], onDelete: Cascade)
+
+  @@index([reviewResultId])
 }
