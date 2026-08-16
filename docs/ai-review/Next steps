@@ -1,1 +1,186 @@
+### What we should do to reach production level
 
+**1. Validate AI output**
+
+-  Use strict JSON/schema output. 
+-  Validate with Zod. 
+-  Never blindly trust model output. 
+-  Handle malformed responses safely. 
+
+**2. Improve GitHub integration**
+
+-  Proper GitHub OAuth. 
+-  Securely store tokens. 
+-  Handle expired/revoked tokens. 
+-  Handle GitHub API errors and rate limits. 
+-  Eventually post review comments directly to GitHub. 
+
+**3. Build proper API routes**
+
+-  Endpoint to start a review. 
+-  Endpoint to get review status. 
+-  Endpoint to get review results. 
+-  Authentication/authorization on every relevant endpoint. 
+
+**4. Make the review pipeline reliable**
+
+- `QUEUED → PROCESSING → COMPLETED/FAILED`. 
+-  Proper retry handling. 
+-  Prevent duplicate reviews. 
+-  Handle timeouts. 
+-  Handle OpenAI failures. 
+-  Handle GitHub failures. 
+
+**5. Handle large PRs**
+
+-  Large diff detection. 
+-  File filtering. 
+-  Token limits. 
+-  Chunking. 
+-  Prioritize important files. 
+-  Avoid sending unnecessary code to the model. 
+
+**6. Improve finding quality**
+
+-  Deduplicate similar findings. 
+-  Better severity calibration. 
+-  Confidence scores. 
+-  Avoid noisy/irrelevant suggestions. 
+-  Don't report obvious stylistic issues as serious problems. 
+
+**7. Make findings GitHub-compatible**
+ Eventually each finding should contain things like:
+
+```
+file
+```
+
+startLine
+
+endLine
+
+side
+
+severity
+
+category
+
+message
+
+suggestion
+
+Then PRISM can create **actual inline review comments** on GitHub.
+
+**8. Security hardening**
+
+-  Never expose GitHub tokens. 
+-  Never expose OpenAI API keys. 
+-  Validate all API input. 
+-  Sanitize anything rendered in the UI. 
+-  Verify GitHub webhook signatures with HMAC. 
+-  Add authorization checks. 
+-  Don't log sensitive information. 
+
+**9. Automated tests**
+ Create tests for:
+
+-  valid PR 
+-  invalid PR 
+-  empty diff 
+-  huge PR 
+-  deleted file 
+-  unsupported file 
+-  GitHub API failure 
+-  expired token 
+-  OpenAI failure 
+-  malformed AI response 
+-  duplicate review 
+-  database failure 
+
+This is currently one of the biggest gaps.
+
+**10. Build the actual UI**
+ Show:
+
+```
+PRISM Review
+```
+
+─────────────
+
+Score: 55/100
+
+
+
+
+Summary
+
+Security
+
+Performance
+
+Code Quality
+
+Edge Cases
+
+Best Practices
+
+
+
+
+Findings
+
+🔴 HIGH
+
+   file.js:104
+
+   Breaking return type
+
+   [Suggested fix]
+
+
+
+
+🟠 MEDIUM
+
+   ...
+
+**11. Add background processing**
+ Instead of making the HTTP request wait \~55 seconds:
+
+```
+Request
+```
+
+  ↓
+
+Create QUEUED review
+
+  ↓
+
+Background worker
+
+  ↓
+
+AI review
+
+  ↓
+
+Database
+
+  ↓
+
+UI polls/receives status
+
+This is important for a real application.
+
+**12. Observability**
+ Add:
+
+-  structured logs 
+-  review duration 
+-  AI token usage 
+-  failure reasons 
+-  GitHub API latency 
+-  review success rate 
+-  AI cost per review                    
