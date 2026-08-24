@@ -1,186 +1,213 @@
-### What we should do to reach production level
-
-**1. Validate AI output**
-
--  Use strict JSON/schema output. 
--  Validate with Zod. 
--  Never blindly trust model output. 
--  Handle malformed responses safely. 
-
-**2. Improve GitHub integration**
-
--  Proper GitHub OAuth. 
--  Securely store tokens. 
--  Handle expired/revoked tokens. 
--  Handle GitHub API errors and rate limits. 
--  Eventually post review comments directly to GitHub. 
-
-**3. Build proper API routes**
-
--  Endpoint to start a review. 
--  Endpoint to get review status. 
--  Endpoint to get review results. 
--  Authentication/authorization on every relevant endpoint. 
-
-**4. Make the review pipeline reliable**
-
-- `QUEUED → PROCESSING → COMPLETED/FAILED`. 
--  Proper retry handling. 
--  Prevent duplicate reviews. 
--  Handle timeouts. 
--  Handle OpenAI failures. 
--  Handle GitHub failures. 
-
-**5. Handle large PRs**
-
--  Large diff detection. 
--  File filtering. 
--  Token limits. 
--  Chunking. 
--  Prioritize important files. 
--  Avoid sending unnecessary code to the model. 
-
-**6. Improve finding quality**
-
--  Deduplicate similar findings. 
--  Better severity calibration. 
--  Confidence scores. 
--  Avoid noisy/irrelevant suggestions. 
--  Don't report obvious stylistic issues as serious problems. 
-
-**7. Make findings GitHub-compatible**
- Eventually each finding should contain things like:
-
-```
-file
-```
-
-startLine
-
-endLine
-
-side
-
-severity
-
-category
-
-message
-
-suggestion
-
-Then PRISM can create **actual inline review comments** on GitHub.
-
-**8. Security hardening**
-
--  Never expose GitHub tokens. 
--  Never expose OpenAI API keys. 
--  Validate all API input. 
--  Sanitize anything rendered in the UI. 
--  Verify GitHub webhook signatures with HMAC. 
--  Add authorization checks. 
--  Don't log sensitive information. 
-
-**9. Automated tests**
- Create tests for:
-
--  valid PR 
--  invalid PR 
--  empty diff 
--  huge PR 
--  deleted file 
--  unsupported file 
--  GitHub API failure 
--  expired token 
--  OpenAI failure 
--  malformed AI response 
--  duplicate review 
--  database failure 
-
-This is currently one of the biggest gaps.
-
-**10. Build the actual UI**
- Show:
-
-```
-PRISM Review
-```
-
-─────────────
-
-Score: 55/100
-
-
-
-
-Summary
-
-Security
-
-Performance
-
-Code Quality
-
-Edge Cases
-
-Best Practices
-
-
-
-
-Findings
-
-🔴 HIGH
-
-   file.js:104
-
-   Breaking return type
-
-   [Suggested fix]
-
-
-
-
-🟠 MEDIUM
-
-   ...
-
-**11. Add background processing**
- Instead of making the HTTP request wait \~55 seconds:
-
-```
-Request
-```
-
-  ↓
-
-Create QUEUED review
-
-  ↓
-
-Background worker
-
-  ↓
-
+PRISM — Production Improvement Roadmap
+🔴 1. GitHub Authentication & Security
+- Proper GitHub OAuth / preferably GitHub App for the product
+- Securely store GitHub access tokens — encrypt at rest
+- Never expose GitHub client secret to frontend
+- Handle expired/revoked GitHub tokens
+- Handle OAuth failures gracefully
+- Secure session management
+- Proper CSRF/state validation
+- Secure cookie configuration
+- GitHub permission/scope minimization
+🔴 2. GitHub API Layer
+- Create a dedicated GitHub API service
+- Fetch PR details reliably
+- Fetch changed files
+- Handle GitHub pagination
+- Handle 401/403/404 errors
+- Handle GitHub rate limits
+- Handle API timeouts/retries
+- Avoid duplicating GitHub API logic across controllers
+🔴 3. Webhooks
+Eventually PRISM shouldn't depend on the user manually starting every review.
+- GitHub webhook integration
+- Verify webhook using HMAC SHA-256
+- Handle pull_request events
+- Detect opened/updated/reopened PRs
+- Prevent duplicate webhook processing
+- Store webhook/review event information
+🔴 4. Background Processing / Queue
+This is important for real-world usage.
+Instead of:
+User request
+   ↓
+Fetch PR
+   ↓
+OpenAI
+   ↓
+Wait...
+we want:
+GitHub webhook
+   ↓
+Create review job
+   ↓
+Queue
+   ↓
+Worker
+   ↓
 AI review
-
-  ↓
-
+- Redis
+- Job queue
+- Background worker
+- Job status (QUEUED, PROCESSING, COMPLETED, FAILED)
+- Retry failed jobs
+- Prevent duplicate jobs
+- Handle worker crashes
+Your existing ReviewStatus enum is already a good foundation for this.
+🔴 5. Large PR Handling
+Your current pipeline needs to become much more robust here.
+- Ignore generated/unnecessary files
+- Ignore lock files where appropriate
+- Handle very large diffs
+- Token budget management
+- Split large PRs into chunks
+- Review chunks independently
+- Combine findings
+- Avoid sending the same code/context repeatedly
+🔴 6. AI Review Reliability
+Your OpenAI + Zod structured output is already a good foundation. We improve around it rather than replacing it.
+- Handle OpenAI API failures
+- Retry transient failures
+- Handle malformed/unexpected responses
+- Validate every AI response with Zod
+- Token/cost tracking
+- Timeout handling
+- Model configuration instead of hardcoding
+- Better review prompts
+- Consistent severity/category definitions
+- Prevent hallucinated file/line references where possible
+🔴 7. Finding Management
+This is one of the biggest upgrades toward a real CodeRabbit-like experience.
+Currently:
+AI → findings → database
+Eventually:
+Finding
+ ├── file
+ ├── line
+ ├── severity
+ ├── message
+ ├── suggestion
+ ├── commit SHA
+ ├── fingerprint
+ └── status
+Then:
+- Finding fingerprints
+- Duplicate detection
+- Track findings across commits
+- Mark findings resolved
+- Mark findings outdated
+- Avoid repeating the same comment
+- Track which review generated the finding
+The gh-review-loop repo is particularly useful for ideas here.
+🔴 8. GitHub Review Comments
+This is one of the major PRISM milestones.
+- Create GitHub PR review
+- Post summary review
+- Post inline comments
+- Map AI finding → GitHub file/line
+- Store GitHub comment/review IDs
+- Update/remove stale comments
+- Avoid comment spam
+- Handle GitHub comment API failures
+🟠 9. Database Improvements
+Your Prisma/PostgreSQL foundation is already good.
+We should improve:
+- Proper indexes
+- Finding status
+- Commit SHA
+- GitHub review/comment IDs
+- Review/job metadata
+- Token encryption
+- Database transactions where needed
+- Cleanup/retention strategy
+- Migration strategy
+🟠 10. Error Handling
+Right now we have several places where you're doing:
+throw new Error(...)
+That's fine during development, but production needs more structured handling.
+- Centralized error handling
+- User-friendly errors
+- Safe errors — never expose secrets
+- GitHub errors separated from AI errors
+- Database errors handled
+- Retryable vs non-retryable errors
+- Error logging
+- Review failure states
+🟠 11. Security Hardening
+- Validate all external input
+- Secure OAuth flow
+- HMAC webhook verification
+- Token encryption
+- Rate limiting
+- Secure cookies
+- Security headers
+- Least-privilege GitHub permissions
+- Never log access tokens/API keys
+- Protect internal endpoints
+- Validate GitHub webhook payloads
+🟠 12. Testing
+A real product needs confidence that changes don't break the review pipeline.
+- OAuth tests
+- Session tests
+- GitHub API tests
+- File filtering tests
+- Prompt builder tests
+- Zod/schema tests
+- Review processor tests
+- Finding deduplication tests
+- Webhook tests
+- End-to-end review test
+Especially:
+GitHub PR
+ ↓
+Webhook
+ ↓
+Queue
+ ↓
+Worker
+ ↓
+AI
+ ↓
 Database
+ ↓
+GitHub comment
+We eventually want at least one end-to-end test covering that flow.
+🟡 13. Observability
+When a real user says:
+"PRISM didn't review my PR."
 
-  ↓
-
-UI polls/receives status
-
-This is important for a real application.
-
-**12. Observability**
- Add:
-
--  structured logs 
--  review duration 
--  AI token usage 
--  failure reasons 
--  GitHub API latency 
--  review success rate 
--  AI cost per review                    
+you need to know why.
+- Structured logging
+- Review/job IDs
+- Processing duration
+- GitHub API latency/errors
+- OpenAI latency/errors
+- Token usage
+- Review failure reasons
+- Health check endpoint
+- Monitoring/error tracking
+🟡 14. Deployment & Infrastructure
+- Production environment variables
+- Proper secret management
+- Docker
+- PostgreSQL production setup
+- Redis production setup
+- Worker deployment
+- HTTPS
+- Database migrations
+- CI/CD
+- Production logging
+- Health checks
+🟡 15. Product Experience
+Finally, make it something people actually want to use.
+- GitHub connection page
+- Repository selection
+- PR selection
+- Review status
+- Review history
+- Findings dashboard
+- Severity filtering
+- Link findings back to GitHub
+- Clear failed-review states
+- Good onboarding
+- Good README/setup documentation                   
