@@ -1,4 +1,8 @@
-import { ReviewStatus } from "../generated/prisma";
+import { ReviewStatus } from "../generated/prisma/enums.ts";
+import { getGithubAccessToken } from "../lib/github-auth.js";
+import { processReview } from "./reviewProcessor.controller.js";
+import { requireUser } from "../lib/auth.js";
+import { prisma } from "../lib/prisma.js";
 // createReview() : Starts a new AI code review
 export async function createReview(request) {
     // Authenticating the user
@@ -79,11 +83,114 @@ processReview(review.id);
 
 
 
+export async function startReview(request, context) {
+    const user = await requireUser();
+
+    console.log("START REVIEW USER:", user.id);
+
+    const { owner, repo, pullNumber } = await context.params;
+
+    console.log("START REVIEW PR:", {
+        owner,
+        repo,
+        pullNumber,
+    });
+
+    const accessToken = await getGithubAccessToken(user.id);
+
+if (!accessToken) {
+    throw new Error("GitHub access token is invalid or unavailable.");
+}
+
+    const repositoryResponse = await fetch(
+    `https://api.github.com/repos/${owner}/${repo}`,
+    {
+        method: "GET",
+        headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: "application/json",
+        },
+    }
+);
+
+if (!repositoryResponse.ok) {
+    throw new Error("Failed to fetch GitHub repository.");
+}
+
+const repository = await repositoryResponse.json();
+
+const githubRepoId = String(repository.id);
+
+console.log("GITHUB REPO ID:", githubRepoId);
+
+
+const review = await prisma.review.create({
+    data: {
+        userId: user.id,
+        githubRepoId,
+        owner,
+        repo,
+        prNumber: Number(pullNumber),
+        status: ReviewStatus.QUEUED,
+        aiModel: "gpt-5",
+    },
+});
+
+console.log("REVIEW FOUND:", review?.id, review?.status);
+
+console.log("REVIEW CREATED:", review.id);
+
+processReview(review.id);
+
+     return Response.json({
+        success: true,
+        message: "Review started.",
+    });
+}
 
 
 
 
+// getReview()
+export async function getReview(request, context) {
+    const user = await requireUser();
 
-//  getReview()
+    const { owner, repo, pullNumber } = await context.params;
+
+    const review = await prisma.review.findFirst({
+        where: {
+            userId: user.id,
+            owner,
+            repo,
+            prNumber: Number(pullNumber),
+        },
+        include: {
+            reviewResult: {
+                include: {
+                    findings: true,
+                },
+            },
+        },
+         orderBy: {
+        createdAt: "desc",
+    },
+    });
+
+    if (!review) {
+        return Response.json(
+            {
+                success: false,
+                message: "Review not found.",
+            },
+            { status: 404 }
+        );
+    }
+
+    return Response.json({
+        success: true,
+        data: review,
+    });
+}
+
 // getReviews()
 // deleteReview()

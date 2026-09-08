@@ -1,11 +1,15 @@
-import { prisma } from "@/lib/prisma";
-import { ReviewStatus } from "../generated/prisma";
+import { prisma } from "../lib/prisma.js";
+import { ReviewStatus } from "../generated/prisma/enums.ts";
 import { filterReviewableFiles } from "../lib/review/fileFilter.js";
 import { buildReviewPrompt } from "../lib/review/promptBuilder.js";
 import { generateReview } from "../lib/ai/reviewClient.js";
+import { getGithubAccessToken } from "../lib/github-auth.js";
+import { requireUser } from "../lib/auth.js";
 
 
 export async function processReview(reviewId) {
+
+    console.log("PROCESS REVIEW STARTED:", reviewId);
 // fetch the review from the db
     const review = await prisma.review.findUnique({
     where: {
@@ -31,6 +35,8 @@ await prisma.review.update({
     },
 });
 
+console.log("REVIEW STATUS SET TO PROCESSING:", reviewId);
+
 try{
     // fetching the user
 const user = await prisma.user.findUnique({
@@ -44,9 +50,13 @@ if (!user) {
     throw new Error("User not found.");
 }
 
-// validate the Github access token
-if (!user.githubAccessToken) {
-    throw new Error("GitHub access token not found.");
+// Get the decrypted and validated GitHub access token.
+// We do this through the helper so this controller never directly
+// handles the encrypted token stored in the database.
+const accessToken = await getGithubAccessToken(user.id);
+
+if (!accessToken) {
+    throw new Error("GitHub access token is invalid or unavailable.");
 }
 
 
@@ -56,18 +66,32 @@ const pullRequestResponse = await fetch(
     {
         method: "GET",
         headers: {
-            Authorization: `Bearer ${user.githubAccessToken}`,
-            Accept: "application/json",
+            Authorization: `Bearer ${accessToken}`,
+            Accept: "application/vnd.github+json",
         },
     }
 );
 // check the responce
 if (!pullRequestResponse.ok) {
-    throw new Error("Failed to fetch GitHub pull request.");
+    const errorBody = await pullRequestResponse.text();
+
+    console.error("GitHub PR fetch failed:");
+    console.error("Status:", pullRequestResponse.status);
+    console.error("Response:", errorBody);
+
+    throw new Error(
+        `Failed to fetch GitHub pull request: ${pullRequestResponse.status}`
+    );
 }
 
 // parse the responce
 const pullRequest = await pullRequestResponse.json();
+
+
+console.log("GITHUB PR FETCHED:", {
+    number: pullRequest.number,
+    title: pullRequest.title,
+});
 
 // validate the pull request
 if (!pullRequest || typeof pullRequest !== "object") {
@@ -92,8 +116,8 @@ const pullRequestFilesResponse = await fetch(
     {
         method: "GET",
         headers: {
-            Authorization: `Bearer ${user.githubAccessToken}`,
-            Accept: "application/json",
+            Authorization: `Bearer ${accessToken}`,
+            Accept: "application/vnd.github+json",
         },
     }
 );
@@ -103,11 +127,14 @@ if (!pullRequestFilesResponse.ok) {
 }
 
 const pullRequestFiles = await pullRequestFilesResponse.json();
+console.log("GITHUB PR FILES FETCHED:", pullRequestFiles.length);
 
 if (!Array.isArray(pullRequestFiles)) {
     throw new Error("Invalid pull request files response from GitHub.");
 }
 const reviewableFiles = filterReviewableFiles(pullRequestFiles);
+
+console.log("REVIEWABLE FILES:", reviewableFiles.length);
 
 const transformedFiles = reviewableFiles.map((file) => {
     return {
@@ -120,9 +147,20 @@ const transformedFiles = reviewableFiles.map((file) => {
     };
 });
 
+console.log("TRANSFORMED FILES:", transformedFiles.length);
+
 
 const prompt = buildReviewPrompt(reviewContext, transformedFiles);
+console.log("PROMPT BUILT:", prompt.length);
 const aiResponse = await generateReview(prompt, review.aiModel);
+
+
+console.log("AI REVIEW GENERATED:", {
+    score: aiResponse.score,
+    findings: aiResponse.findings.length,
+});
+
+console.log("SAVING AI REVIEW RESULT...");
 
 // This saves the overall AI review.
 
@@ -140,18 +178,22 @@ const reviewResult = await prisma.reviewResult.create({
   },
 });
 
+console.log("REVIEW RESULT SAVED:", reviewResult.id);
+
 
 await prisma.reviewFinding.createMany({
-  data: aiResponse.findings.map((finding) => ({
-    reviewId: review.id,
-    severity: finding.severity,
-    file: finding.file,
-    line: finding.line,
-    category: finding.category,
-    message: finding.message,
-    suggestion: finding.suggestion,
-  })),
+    data: aiResponse.findings.map((finding) => ({
+        reviewResultId: reviewResult.id,
+        severity: finding.severity,
+        file: finding.file,
+        line: finding.line,
+        category: finding.category,
+        message: finding.message,
+        suggestion: finding.suggestion,
+    })),
 });
+
+console.log("REVIEW FINDINGS SAVED:", aiResponse.findings.length);
 
 const completedAt = new Date();
 const durationMs = completedAt.getTime() - startedAt.getTime();
@@ -165,6 +207,11 @@ await prisma.review.update({
         completedAt,
         durationMs,
     },
+});
+
+console.log("REVIEW COMPLETED:", {
+    reviewId,
+    durationMs,
 });
 } catch (error) {
     console.error("Error occurred while processing review:", error);
@@ -191,4 +238,22 @@ await prisma.review.update({
 }
 
 
+}
+
+
+
+
+
+export async function startReview(request, context) {
+    const user = await requireUser();
+
+    console.log("START REVIEW USER:", user.id);
+
+     const { owner, repo, pullNumber } = await context.params;
+
+    console.log("START REVIEW PR:", {
+        owner,
+        repo,
+        pullNumber,
+    });
 }

@@ -1,5 +1,7 @@
+import { prisma } from "@/lib/prisma";
 import {cookies} from 'next/headers';
 import { redirect } from "next/navigation";
+import { encryptToken } from "@/lib/encryption";
 // Starts GitHub OAuth login
 export async function loginWithGithub() {
      // Generate a secure random value to protect the OAuth flow. crypto is a built-in module provided by Node.js. It's not only for generating random strings.It can also Generate secure random values, Create hashes (SHA-256, SHA-512), Encrypt data, Decrypt data, Generate UUIDs,Verify digital signatures. And also we might think why we didn't import it from 'crypto' at the top of the file. The reason is that Next.js provides the Web Crypto API globally in route handlers and server environments. And now comes why randomUUID() is used, Since OAuth is a security feature, we always choose the secure option. and it provide random, extremely difficult to guess and is designed for security.
@@ -48,6 +50,12 @@ export async function loginWithGithub() {
 
 // Handles GitHub callback after successful login. why we are using redirect here because after the user is authenticated by Github, we want to redirect them back to our application. 
 export async function githubCallback(request) {
+
+  const error = request.nextUrl.searchParams.get("error");
+
+ if (error === "access_denied") {
+  redirect("/");
+}
   // now let's think what did github send us back, it sends us back a code and state. 
 
   const code = request.nextUrl.searchParams.get("code");
@@ -59,12 +67,12 @@ const state = request.nextUrl.searchParams.get("state");
     const storedState = cookieStore.get("oauth_state")?.value;
 
     // validate the data before comparing
-    if (!code || !state || !storedState) {
-    throw new Error("Invalid OAuth callback.");
+  if (!code || !state || !storedState) {
+    redirect("/");
 }
 
-if(state !== storedState) {
-   throw new Error("Missing OAuth code or state.");
+if (state !== storedState) {
+    throw new Error("OAuth state validation failed.");
 }
 
 // now once the state match: we will delete the state cookie because that state has already been used.
@@ -148,7 +156,7 @@ if (!user) {
     name: profileData.name,
     email: profileData.email,
     avatarUrl: profileData.avatar_url,
-    githubAccessToken: accessToken,
+   githubAccessToken: encryptToken(accessToken),
   },
 });
 }
@@ -162,7 +170,7 @@ else {
             name: profileData.name,
             email: profileData.email,
             avatarUrl: profileData.avatar_url,
-            githubAccessToken: accessToken,
+            githubAccessToken: encryptToken(accessToken),
         },
     });
 }

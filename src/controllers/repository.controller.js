@@ -1,11 +1,16 @@
+import { requireUser } from "@/lib/auth";
+import { getGithubAccessToken } from "@/lib/github-auth";
+
 // getRepositories()
 export async function getRepositories() {
     // since this endpoint requires authentication, we are using requireUser() as this endpoint must have a logged-in user. If someone isn't authenticated, we don't want to return null; we want them to be redirected to login.
     const user = await requireUser();
 
 
-    if (!user.githubAccessToken) {
-    throw new Error("GitHub access token not found.");
+   const accessToken = await getGithubAccessToken(user.id);
+
+if (!accessToken) {
+    throw new Error("GitHub connection is invalid. Please reconnect GitHub.");
 }
 
     const repositoriesResponse = await fetch(
@@ -14,7 +19,7 @@ export async function getRepositories() {
         {
             method: "GET",
             headers: {
-                Authorization: `Bearer ${user.githubAccessToken}`,
+                Authorization: `Bearer ${accessToken}`,
                  Accept: "application/json",
             }
         }

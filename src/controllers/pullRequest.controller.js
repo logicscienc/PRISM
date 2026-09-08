@@ -1,3 +1,5 @@
+import { requireUser } from "@/lib/auth";
+import { getGithubAccessToken } from "@/lib/github-auth";
 // getPullRequests() : 
 
 
@@ -8,9 +10,11 @@ export async function getPullRequests(request, context) {
     const user = await requireUser();
 
 
-    if (!user.githubAccessToken) {
-        throw new Error("GitHub access token not found.");
-    }
+   const accessToken = await getGithubAccessToken(user.id);
+
+if (!accessToken) {
+    throw new Error("GitHub connection is invalid. Please reconnect GitHub.");
+}
 
     const { owner, repo } = await context.params;
 
@@ -23,7 +27,7 @@ const pullRequestsResponse = await fetch(
     {
         method: "GET",
         headers: {
-            Authorization: `Bearer ${user.githubAccessToken}`,
+            Authorization: `Bearer ${accessToken}`,
             Accept: "application/json",
         },
     }
@@ -68,8 +72,10 @@ return Response.json({
 export async function getPullRequest(request, context) {
     const user = await requireUser();
 
-    if (!user.githubAccessToken) {
-    throw new Error("GitHub access token not found.");
+   const accessToken = await getGithubAccessToken(user.id);
+
+if (!accessToken) {
+    throw new Error("GitHub connection is invalid. Please reconnect GitHub.");
 }
 
   const {owner, repo, pullNumber} = await context.params;
@@ -83,7 +89,7 @@ export async function getPullRequest(request, context) {
     {
         method: "GET",
         headers: {
-            Authorization: `Bearer ${user.githubAccessToken}`,
+            Authorization: `Bearer ${accessToken}`,
             Accept: "application/json",
         },
     }
@@ -142,8 +148,10 @@ return Response.json({
 export async function getPullRequestFiles(request, context) {
     const user = await requireUser();
 
-if (!user.githubAccessToken) {
-    throw new Error("GitHub access token not found.");
+const accessToken = await getGithubAccessToken(user.id);
+
+if (!accessToken) {
+    throw new Error("GitHub connection is invalid. Please reconnect GitHub.");
 }
 
 const { owner, repo, pullNumber } = await context.params;
@@ -158,7 +166,7 @@ const pullRequestFilesResponse = await fetch(
     {
         method: "GET",
         headers: {
-            Authorization: `Bearer ${user.githubAccessToken}`,
+            Authorization: `Bearer ${accessToken}`,
             Accept: "application/json",
         },
     }

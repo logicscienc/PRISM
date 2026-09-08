@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.8.0",
     "dotenv": "^17.4.2",
     "gsap": "^3.15.0",
@@ -16,6 +17,7 @@
     "next": "16.2.10",
     "octokit": "^5.0.5",
     "openai": "^6.48.0",
+    "pg": "^8.23.0",
     "prisma": "^7.8.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
@@ -26,6 +28,7 @@
     "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
-    "tailwindcss": "^4"
+    "tailwindcss": "^4",
+    "tsx": "^4.23.12"
   }
 }

@@ -1,3 +1,7 @@
+import { cookies } from "next/headers";
+import { prisma } from "@/lib/prisma";
+import { redirect } from "next/navigation";
+
 // getCurrentUser() : return the currentley authenticated user.
 export async function getCurrentUser() {
 // we first need the cookie manager because cookies() gives us access to all cookies sent by the browser. cookieStore is an object that lets us read, set, and delete cookies.

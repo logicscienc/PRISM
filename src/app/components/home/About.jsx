@@ -187,13 +187,15 @@ export default function About() {
               </li>
             </ul>
 
-            <button
-              ref={btnRef}
-              onClick={() => router.push("/create")}
-              className="mt-4 px-8 py-4 bg-white text-black font-semibold rounded-full cursor-pointer"
-            >
-              Connect GitHub App
-            </button>
+         <button
+  ref={btnRef}
+  onClick={() => {
+    window.location.href = "/api/auth/github";
+  }}
+  className="mt-4 px-8 py-4 bg-white text-black font-semibold rounded-full cursor-pointer"
+>
+  Connect GitHub
+</button>
           </div>
         </div>
       </div>
