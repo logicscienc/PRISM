@@ -1,15 +1,17 @@
 'use client';
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import AnimatedCard from "./About/AnimatedCard";
+import GlowingLoader from "../GlowingLoader";
 
 
 gsap.registerPlugin(ScrollTrigger);
 
 export default function About() {
+  const [connecting, setConnecting] = useState(false);
   const sectionRef = useRef(null);
   const textRef = useRef(null);
   const btnRef = useRef(null);
@@ -120,6 +122,12 @@ export default function About() {
   }, []);
 
   return (
+    <>
+     {connecting && (
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#0a0a0a]">
+        <GlowingLoader />
+      </div>
+    )}
     <section ref={sectionRef} className="w-full pt-40 bg-[#0a0a0a]">
       <div className="max-w-[1500px] mx-auto px-10">
         <div className="grid grid-cols-2 items-center gap-24">
@@ -187,18 +195,24 @@ export default function About() {
               </li>
             </ul>
 
-         <button
+        <button
   ref={btnRef}
   onClick={() => {
-    window.location.href = "/api/auth/github";
+    setConnecting(true);
+
+    setTimeout(() => {
+      window.location.href = "/api/auth/github";
+    }, 300);
   }}
-  className="mt-4 px-8 py-4 bg-white text-black font-semibold rounded-full cursor-pointer"
+  disabled={connecting}
+  className="mt-4 px-8 py-4 bg-white text-black font-semibold rounded-full cursor-pointer disabled:cursor-wait"
 >
-  Connect GitHub
+  {connecting ? "Connecting..." : "Connect GitHub"}
 </button>
           </div>
         </div>
       </div>
     </section>
+    </>
   );
 }
