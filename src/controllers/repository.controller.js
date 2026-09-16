@@ -44,6 +44,7 @@ const transformedRepositories = repositories.map((repo) => {
         owner: repo.owner.login,
         visibility: repo.private ? "private" : "public",
         language: repo.language,
+         description: repo.description,
         updatedAt: repo.updated_at,
     };
 });

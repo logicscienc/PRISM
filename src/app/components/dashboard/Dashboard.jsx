@@ -1,132 +1,195 @@
-"use client"; 
- 
-import { useEffect, useState } from "react"; 
-import { useRouter } from "next/navigation";
- 
-export default function Dashboard({ user }) { 
-   const router = useRouter();
-  const [repositories, setRepositories] = useState([]); 
-  const [loading, setLoading] = useState(true); 
-  const [error, setError] = useState(""); 
+"use client";
 
+import { useEffect, useRef, useState } from "react";
+import {useRouter} from "next/navigation";
+import RepositoryCard from "./RepositoryCard";
+import gsap from "gsap";
 
- 
- 
-  useEffect(() => { 
-    async function fetchRepositories() { 
-      try { 
-        const response = await fetch("/api/repositories"); 
- 
-        if (!response.ok) { 
-          throw new Error("Failed to fetch repositories."); 
-        } 
- 
-        const result = await response.json(); 
- 
-        setRepositories(result.data ?? []); 
-      } catch (error) { 
-        console.error(error); 
-        setError("Unable to load repositories."); 
-      } finally { 
-        setLoading(false); 
-      } 
-    } 
- 
-    fetchRepositories(); 
-  }, []); 
+export default function Dashboard({ user }) {
+  const navRef = useRef(null);
+  const titleRef = useRef(null);
+  const router = useRouter();
+const [repositories, setRepositories] = useState([]);
+const [loading, setLoading] = useState(true);
+const [error, setError] = useState("");
 
+  useEffect(() => {
+    const ctx = gsap.context(() => {
+      const chars = titleRef.current.querySelectorAll(".char");
 
+      gsap.from(chars, {
+        opacity: 0,
+        yPercent: 130,
+        stagger: 0.05,
+        duration: 1,
+        ease: "back.out",
+      });
+    }, navRef);
 
- 
-  return ( 
-    <main className="min-h-screen bg-[#0a0a0a] text-white px-6 py-10 "> 
-      <div className="mx-auto w-full"> 
- 
-        {/* Header */} 
-        <div className="mb-10"> 
-          <h1 className="text-3xl font-bold"> 
-            PRISM Dashboard 
-          </h1> 
- 
-          <p className="text-gray-400 mt-2"> 
-            Logged in as{" "} 
-            <span className="text-white font-medium"> 
-              {user.login} 
-            </span> 
-          </p> 
- 
-          <p className="text-gray-500 text-sm mt-1"> 
-            {user.email ?? "Email not available"} 
-          </p> 
-        </div> 
- 
-        {/* Repositories */} 
-        <section> 
-          <h2 className="text-xl font-semibold mb-5"> 
-            Your Repositories 
-          </h2> 
- 
-          {loading && ( 
-            <p className="text-gray-400"> 
-              Loading repositories... 
-            </p> 
-          )} 
- 
-          {error && ( 
-            <p className="text-red-400"> 
-              {error} 
-            </p> 
-          )} 
- 
-          {!loading && !error && repositories.length === 0 && ( 
-            <p className="text-gray-400"> 
-              No repositories found. 
-            </p> 
-          )} 
- 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4  mx-auto">
-            {repositories.map((repo) => ( 
-              <div
-  key={repo.id}
-  onClick={() =>
-    router.push(`/dashboard/${repo.owner}/${repo.name}`)
+    return () => ctx.revert();
+  }, []);
+
+  useEffect(() => {
+  async function fetchRepositories() {
+    try {
+      const response = await fetch("/api/repositories");
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch repositories.");
+      }
+
+      const result = await response.json();
+      console.log("Repositories:", result.data);
+
+      setRepositories(result.data ?? []);
+    } catch (error) {
+      console.error(error);
+      setError("Unable to load repositories.");
+    } finally {
+      setLoading(false);
+    }
   }
-  className="border border-white/10 bg-white/[0.03] rounded-xl p-5 hover:border-white/20 transition cursor-pointer"
+
+  fetchRepositories();
+}, []);
+
+  return (
+    <main
+      ref={navRef}
+      className="min-h-screen bg-[#0a0a0a] text-white"
+    >
+      {/* Navbar */}
+      <nav className="sticky top-0 z-50 h-[100px] w-full border-b border-[#96ACE0]/20 bg-[#0a0a0a]">
+
+  {/* Logo */}
+  <div className="absolute left-10 top-1/2 -translate-y-1/2">
+    <img
+      src="/assets/logo.png"
+      alt="PRISM"
+      className="w-32 h-auto"
+    />
+  </div>
+
+  {/* Dashboard */}
+  <div
+    ref={titleRef}
+    className="absolute right-10 top-1/2 -translate-y-1/2"
+  >
+    <h1 className="font-syne text-[28px] font-extrabold uppercase tracking-[0.12em]">
+      <span className="stroke-text text-transparent">
+        {"DASHBOARD".split("").map((char, i) => (
+          <span
+            key={i}
+            className="char inline-block mx-[2px]"
+          >
+            {char}
+          </span>
+        ))}
+      </span>
+    </h1>
+  </div>
+
+  {/* Subtle glow */}
+  <div className="pointer-events-none absolute bottom-0 left-0 h-px w-full bg-[#96ACE0]/20 shadow-[0_0_12px_#D5E0FF]" />
+
+</nav>
+
+<section
+  className="relative w-full pt-28 pb-36"
+  style={{
+    paddingLeft: "120px",
+    paddingRight: "120px",
+    paddingTop: "50px",
+  }}
 >
-                <h3 className="font-semibold text-lg"> 
-                  {repo.name} 
-                </h3> 
- 
-                <p className="text-gray-500 text-sm mt-1"> 
-                  {repo.owner} 
-                </p> 
- 
-               <div className="flex gap-3 mt-5 text-sm"> 
-  <span className="text-gray-400"> 
-    {repo.language ?? "Unknown"} 
-  </span> 
- 
-  <span className="text-gray-600">•</span> 
- 
-  <span 
-    className={ 
-      repo.visibility === "public" 
-        ? "text-emerald-400" 
-        : "text-yellow-400" 
-    } 
-  > 
-    {repo.visibility} 
-  </span> 
-</div> 
-              </div> 
-            ))} 
-          </div> 
+  <div>
 
+    {/* Eyebrow */}
+    <p className="text-sm uppercase tracking-[0.3em] text-gray-500 mb-7">
+      Your Codebase
+    </p>
 
-  
-        </section> 
- 
-      </div> 
-    </main> 
-  ); 
-} 
+    {/* Username */}
+    <h2 className="text-[56px] uppercase tracking-[10px] font-extrabold flex flex-wrap">
+  {user.login.split("").map((char, i) => (
+    <span
+      key={i}
+      className={`inline-block ${
+        i % 3 === 1 ? "text-transparent stroke-text" : "text-white"
+      }`}
+    >
+      {char}
+    </span>
+  ))}
+</h2>
+
+    {/* GitHub Status */}
+    <div className="mt-10 flex items-center gap-4">
+
+      {/* Status Dot */}
+      <span className="relative flex h-2.5 w-2.5 shrink-0">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-50" />
+        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400" />
+      </span>
+
+      <div>
+        <p className="text-sm uppercase tracking-[0.2em] text-gray-300">
+          GitHub Connected
+        </p>
+
+        <p className="mt-1 text-xs uppercase tracking-[0.15em] text-gray-600">
+          Repositories Synced · Ready for Review
+        </p>
+      </div>
+
+    </div>
+
+  </div>
+</section>
+
+      {/* Repositories */}
+<section
+  className="relative w-full pb-32"
+  style={{
+    paddingLeft: "120px",
+    paddingRight: "120px",
+    paddingTop: "50px",
+  }}
+>
+  <div
+    className="flex items-center mb-8"
+    style={{
+      gap: "24px",
+    }}
+  >
+    <h2 className="text-sm uppercase tracking-[0.25em] text-gray-300 whitespace-nowrap">
+      Your Repositories
+    </h2>
+
+    <div className="h-px flex-1 bg-white/10" />
+
+    <span className="text-xs text-gray-600">
+      {repositories?.length ?? 0} CONNECTED
+    </span>
+  </div>
+
+  <div
+    className="flex flex-col"
+    style={{
+      gap: "24px",
+    }}
+  >
+    {repositories?.map((repo) => (
+      <RepositoryCard
+        key={repo.id}
+        repo={repo}
+        onClick={() =>
+          router.push(`/dashboard/${repo.owner}/${repo.name}`)
+        }
+      />
+    ))}
+  </div>
+</section>
+    </main>
+  );
+}

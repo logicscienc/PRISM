@@ -71,11 +71,14 @@ export default function Hero() {
         className="font-syne z-10 text-center text-[90px] font-extrabold uppercase leading-[0.9] text-white mix-blend-difference"
       >
         <span className="title_paralax inline-block">
-          {"PRISM".split("").map((char, i) => (
-            <span key={i} className="char inline-block mx-[2px]">
-              {char === " " ? "\u00A0" : char}
-            </span>
-          ))}
+          <span className="title_paralax inline-block">
+  <img
+    src="/assets/logo.png"
+    alt="PRISM"
+    className="h-[160px] w-auto object-contain"
+    draggable={false}
+  />
+</span>
         </span>
 
         <div className="stroke-text text-transparent">
