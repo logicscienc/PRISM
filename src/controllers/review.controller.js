@@ -145,8 +145,10 @@ processReview(review.id);
      return Response.json({
         success: true,
         message: "Review started.",
+        reviewId: review.id,
     });
 }
+
 
 
 
@@ -154,43 +156,49 @@ processReview(review.id);
 // getReview()
 export async function getReview(request, context) {
     const user = await requireUser();
-
     const { owner, repo, pullNumber } = await context.params;
 
-    const review = await prisma.review.findFirst({
+    const where = {
+        userId: user.id,
+        owner,
+        repo,
+        prNumber: Number(pullNumber),
+    };
+
+    const reviews = await prisma.review.findMany({
         where: {
-            userId: user.id,
-            owner,
-            repo,
-            prNumber: Number(pullNumber),
+            ...where,
+            status: ReviewStatus.COMPLETED,
+            reviewResult: { isNot: null },
         },
         include: {
-            reviewResult: {
-                include: {
-                    findings: true,
-                },
-            },
+            reviewResult: { include: { findings: true } },
         },
-         orderBy: {
-        createdAt: "desc",
-    },
+        orderBy: [{ completedAt: "desc" }, { createdAt: "desc" }],
+        take: 2,
     });
 
-    if (!review) {
-        return Response.json(
-            {
-                success: false,
-                message: "Review not found.",
-            },
-            { status: 404 }
-        );
-    }
+    // newest review of ANY status, used for polling
+    const currentReview = await prisma.review.findFirst({
+        where,
+        include: {
+            reviewResult: { include: { findings: true } },
+        },
+        orderBy: { createdAt: "desc" },
+    });
 
     return Response.json({
         success: true,
-        data: review,
+        data: {
+            latestAnalysis: reviews[0] ?? null,
+            previousReview: reviews[1] ?? null,
+            currentReview,
+        },
     });
 }
+
+
+
 
 // getReviews()
 // deleteReview()
