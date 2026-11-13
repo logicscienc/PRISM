@@ -1,34 +1,14 @@
 import { z } from "zod";
 
 const findingSchema = z.object({
-    severity: z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]),
-
-    file: z
-        .string()
-        .min(1, "Finding file cannot be empty"),
-
-    line: z
-        .number()
-        .int()
-        .positive()
-        .nullable(),
-
-    category: z.enum([
-        "SECURITY",
-        "PERFORMANCE",
-        "CODE_QUALITY",
-        "EDGE_CASE",
-        "BEST_PRACTICE",
-    ]),
-
-    message: z
-        .string()
-        .min(1, "Finding message cannot be empty"),
-
-    suggestion: z
-        .string()
-        .min(1, "Suggestion cannot be empty")
-        .nullable(),
+  severity: z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]),
+  category: z.enum(["SECURITY","PERFORMANCE","CODE_QUALITY","EDGE_CASE","BEST_PRACTICE"]),
+  file: z.string().min(1),
+  startLine: z.number().int().positive().nullable(),
+  endLine: z.number().int().positive().nullable(),
+  title: z.string().min(1),          // short, shown as the card heading
+  message: z.string().min(1),        // what is wrong and why
+  suggestedCode: z.string().nullable(), // fixed code, ready to copy
 });
 
 const reviewResponseSchema = z.object({

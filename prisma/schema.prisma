@@ -77,10 +77,12 @@ model ReviewFinding {
   reviewResultId String
   severity       String
   file           String
-  line           Int?
+  startLine      Int?         @map("line")
+  endLine        Int?
+  title          String?
   category       String
   message        String
-  suggestion     String?
+  suggestedCode  String?      @map("suggestion")
   createdAt      DateTime     @default(now())
   reviewResult   ReviewResult @relation(fields: [reviewResultId], references: [id], onDelete: Cascade)
 

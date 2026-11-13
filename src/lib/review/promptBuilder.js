@@ -1,3 +1,4 @@
+import { annotatePatch } from "./annotatePatch.js";
 export function buildReviewPrompt(reviewContext, transformedFiles) {
 
     const { title, description, author } = reviewContext;
@@ -14,7 +15,7 @@ Deletions: ${file.deletions}
 Changes: ${file.changes}
 
 Patch:
-${file.patch ?? "No patch available."}
+${file.patch ? annotatePatch(file.patch).text : "No patch available."}
 `;
     })
     .join("\n");
@@ -54,6 +55,14 @@ Look for:
 Focus on issues that could have a meaningful impact on the application.
 
 Do not report minor formatting or stylistic preferences unless they affect correctness or maintainability.
+
+## Output Rules
+- Every code line in the patch starts with its line number, like "L14 |". Use ONLY these numbers for startLine and endLine.
+- Never comment on removed lines (lines with no L-number).
+- Each finding must point to the exact line(s) where the problem is.
+- If several issues come from the same root cause, report ONE finding.
+- "suggestedCode" must be the corrected replacement code, ready to paste.
+- If you find no real problems, return an empty findings array. Do not invent issues.
 `; 
 
 return prompt;
