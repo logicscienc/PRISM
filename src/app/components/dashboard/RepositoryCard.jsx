@@ -1,309 +1,157 @@
 "use client";
-import { useRef, useEffect, useState } from "react";
-import GlowingLoader from "../GlowingLoader";
-import gsap from "gsap";
+
+import { useState } from "react";
+
+const LANGUAGE_COLORS = {
+  JavaScript: "#f1e05a",
+  TypeScript: "#3178c6",
+  Python: "#3572a5",
+  Java: "#b07219",
+  Go: "#00add8",
+  Rust: "#dea584",
+  "C++": "#f34b7d",
+  HTML: "#e34c26",
+  CSS: "#563d7c",
+};
+
+function timeAgo(dateString) {
+  if (!dateString) return null;
+
+  const seconds = Math.floor((Date.now() - new Date(dateString).getTime()) / 1000);
+  if (Number.isNaN(seconds)) return null;
+
+  const units = [
+    ["year", 31536000],
+    ["month", 2592000],
+    ["day", 86400],
+    ["hour", 3600],
+    ["minute", 60],
+  ];
+
+  for (const [name, size] of units) {
+    const value = Math.floor(seconds / size);
+    if (value >= 1) return `${value} ${name}${value > 1 ? "s" : ""} ago`;
+  }
+  return "just now";
+}
 
 export default function RepositoryCard({ repo, onClick }) {
-  const cardRef = useRef(null);
-  const scanLineRef = useRef(null);
-  const repoNameRef = useRef(null);
-  const ctaRef = useRef(null);
-  const [navigating, setNavigating] = useState(false);
+  const [active, setActive] = useState(false); // hovered or keyboard-focused
 
-  useEffect(() => {
-  const card = cardRef.current;
-  const scanLine = scanLineRef.current;
+  // The field names below are best guesses. Match them to what /api/repositories returns.
+  const isPrivate = Boolean(repo.private ?? repo.isPrivate);
+  const updated = timeAgo(repo.updatedAt ?? repo.updated_at);
+  const languageColor = LANGUAGE_COLORS[repo.language] ?? "#8a8a8a";
 
-  if (!card || !scanLine) return;
-
-   const handleEnter = () => {
-    gsap.fromTo(
-      scanLine,
-      {
-        y: 0,
-        opacity: 0,
-      },
-      {
-        y: card.offsetHeight - 2,
-        opacity: 1,
-        duration: 0.8,
-        ease: "power2.inOut",
-      }
-    );
-     gsap.to(repoNameRef.current, {
-    y: -12,
-    duration: 0.5,
-    ease: "power2.out",
-  });
-   gsap.fromTo(
-    ctaRef.current,
-    {
-      opacity: 0,
-      scale: 0.95,
-    },
-    {
-      opacity: 1,
-      scale: 1,
-      duration: 0.4,
-      delay: 0.6,
-      ease: "power2.out",
-    }
-  );
-  };
-
-  const handleLeave = () => {
-    gsap.to(scanLine, {
-      opacity: 0,
-      duration: 0.2,
-    });
-
-      gsap.to(repoNameRef.current, {
-    y: 0,
-    duration: 0.3,
-    ease: "power2.out",
-  });
-
-   gsap.to(ctaRef.current, {
-    opacity: 0,
-    scale: 0.95,
-    duration: 0.2,
-    ease: "power2.in",
-  });
-  };
-
-  card.addEventListener("mouseenter", handleEnter);
-  card.addEventListener("mouseleave", handleLeave);
-
-  return () => {
-    card.removeEventListener("mouseenter", handleEnter);
-    card.removeEventListener("mouseleave", handleLeave);
-  };
-}, []);
-if (navigating) {
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#0a0a0a]">
-      <GlowingLoader />
-    </div>
-  );
-}
-  return (
-  <article
-    ref={cardRef}
-    onClick={() => {
-    setNavigating(true);
-    onClick();
-  }}
-  className="group relative cursor-pointer"
-  style={{
-    width: "100%",
-    minHeight: "240px",
-    backgroundColor: "#96ACE0",
-    padding: "1px",
-
-    clipPath:
-      "polygon(12px 0, calc(100% - 12px) 0, 100% 12px, 100% calc(100% - 12px), calc(100% - 12px) 100%, 12px 100%, 0 calc(100% - 12px), 0 12px)",
-
-    boxShadow:
-      "0 0 15px rgba(213, 224, 255, 0.12)",
-  }}
->
-  <div
-    className="relative"
-    style={{
-      minHeight: "238px",
-      backgroundColor: "#0b0b0d",
-
-      clipPath:
-        "polygon(12px 0, calc(100% - 12px) 0, 100% 12px, 100% calc(100% - 12px), calc(100% - 12px) 100%, 12px 100%, 0 calc(100% - 12px), 0 12px)",
-
-      padding: "32px",
-    }}
-  >
-    {/* Hover Overlay */}
-<div
-  className="pointer-events-none absolute inset-0 z-10 opacity-0 transition-opacity duration-500 group-hover:opacity-100"
-  style={{
-    backgroundColor: "rgba(10, 10, 10, 0.45)",
-    backdropFilter: "blur(3px)",
-  }}
-/>
-
-{/* Scan Line */}
-<div
-  ref={scanLineRef}
-  className="pointer-events-none absolute left-0 top-0 z-20"
-  style={{
-    width: "100%",
-    height: "1px",
-    backgroundColor: "#D5E0FF",
-    boxShadow: "0 0 15px rgba(213, 224, 255, 0.9)",
-    opacity: 0,
-  }}
-/>
-    
-  
-
-      {/* Top technical accent */}
-      <div
-        className="absolute left-0 top-0"
-        style={{
-          width: "110px",
-          height: "1px",
-          backgroundColor: "#D5E0FF",
-        }}
-      />
-
-      {/* Top-right accent */}
-      <div
-        className="absolute right-0 top-0"
-        style={{
-          width: "1px",
-          height: "40px",
-          backgroundColor: "rgba(150, 172, 224, 0.7)",
-        }}
-      />
-
-      {/* Bottom-left accent */}
-      <div
-        className="absolute bottom-0 left-0"
-        style={{
-          width: "40px",
-          height: "1px",
-          backgroundColor: "rgba(150, 172, 224, 0.5)",
-        }}
-      />
-
-      {/* Content */}
-      <div
-        className="flex flex-col justify-between"
-        style={{
-          minHeight: "230px",
-          padding: "32px",
-        }}
-      >
-        {/* Top */}
-        <div>
-          <p
-            className="uppercase"
-            style={{
-              marginBottom: "12px",
-              fontSize: "10px",
-              letterSpacing: "0.3em",
-              color: "rgba(150, 172, 224, 0.6)",
-            }}
-          >
-            Repository
-          </p>
-
-          <h3
-            ref={repoNameRef}
-            className="font-syne uppercase"
-            style={{
-              fontSize: "28px",
-              lineHeight: "1.2",
-              fontWeight: 700,
-              letterSpacing: "0.08em",
-              color: "#ffffff",
-            }}
-          >
-            {repo.name}
-          </h3>
-
-          <p
-            style={{
-              marginTop: "12px",
-              maxWidth: "800px",
-              fontSize: "14px",
-              lineHeight: "1.6",
-              color: "#6b7280",
-            }}
-          >
-            {repo.description || "No description provided."}
-          </p>
-        </div>
-
-        {/* Bottom */}
-        <div
-          className="flex items-center justify-between"
+    <button
+      type="button"
+      onClick={onClick}
+      onMouseEnter={() => setActive(true)}
+      onMouseLeave={() => setActive(false)}
+      onFocus={() => setActive(true)}
+      onBlur={() => setActive(false)}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        width: "100%",
+        padding: "20px",
+        borderRadius: "12px",
+        border: `1px solid ${active ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.1)"}`,
+        backgroundColor: "#111111",
+        color: "#ffffff",
+        textAlign: "left",
+        font: "inherit",
+        cursor: "pointer",
+        outline: "none",
+        transition: "border-color 0.2s ease",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "12px" }}>
+        <h3
           style={{
-            marginTop: "32px",
+            margin: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            fontSize: "16px",
+            fontWeight: 500,
           }}
         >
-          <div
-            className="flex items-center"
-            style={{
-              gap: "16px",
-            }}
-          >
-            <span
-              className="uppercase"
-              style={{
-                fontSize: "11px",
-                letterSpacing: "0.15em",
-                color: "#6b7280",
-              }}
-            >
-              {repo.language || "Unknown"}
-            </span>
+          {repo.name}
+        </h3>
 
-            <span
-              style={{
-                width: "4px",
-                height: "4px",
-                backgroundColor: "rgba(150, 172, 224, 0.5)",
-              }}
-            />
+        <span
+          style={{
+            flexShrink: 0,
+            padding: "2px 10px",
+            borderRadius: "999px",
+            border: "1px solid rgba(255,255,255,0.2)",
+            fontSize: "11px",
+            color: "#9ca3af",
+          }}
+        >
+          {isPrivate ? "Private" : "Public"}
+        </span>
+      </div>
 
-            <span
-              className="uppercase"
-              style={{
-                fontSize: "10px",
-                letterSpacing: "0.2em",
-                color:
-                  repo.visibility === "public"
-                    ? "#34d399"
-                    : "#D5E0FF",
-              }}
-            >
-              {repo.visibility}
-            </span>
-          </div>
-
-          <span
-            style={{
-              fontSize: "22px",
-              color: "#96ACE0",
-            }}
-          >
-            ↗
-          </span>
+      <p
+        style={{
+          margin: "8px 0 0",
+          minHeight: "40px",
+          overflow: "hidden",
+          display: "-webkit-box",
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: "vertical",
+          fontSize: "14px",
+          lineHeight: "20px",
+          color: "#6b7280",
+        }}
+      >
+        {repo.description || "No description"}
+      </p>
 
       <div
-  ref={ctaRef}
-  style={{
-    position: "absolute",
-    left: "50%",
-    top: "50%",
-    transform: "translate(-50%, -50%)",
-    display: "flex",
-    alignItems: "center",
-    gap: "14px",
-    fontSize: "18px",
-    fontWeight: 700,
-    letterSpacing: "0.18em",
-    textTransform: "uppercase",
-    color: "#D5E0FF",
-    opacity: 0,
-    whiteSpace: "nowrap",
-    zIndex: 30,
-  }}
->
-  SELECT REPOSITORY
-  <span style={{ fontSize: "24px" }}>↗</span>
-</div>
+        style={{
+          marginTop: "20px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          fontSize: "12px",
+          color: "#6b7280",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+          {repo.language && (
+            <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <span
+                aria-hidden="true"
+                style={{
+                  display: "inline-block",
+                  width: "8px",
+                  height: "8px",
+                  borderRadius: "50%",
+                  backgroundColor: languageColor,
+                }}
+              />
+              {repo.language}
+            </span>
+          )}
+          {updated && <span>Updated {updated}</span>}
         </div>
+
+        <span
+          aria-hidden="true"
+          style={{
+            fontSize: "16px",
+            color: active ? "#ffffff" : "#6b7280",
+            transform: active ? "translateX(4px)" : "translateX(0)",
+            transition: "transform 0.2s ease, color 0.2s ease",
+          }}
+        >
+          →
+        </span>
       </div>
-      </div>
-    </article>
+    </button>
   );
 }

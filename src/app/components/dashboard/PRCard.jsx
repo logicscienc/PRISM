@@ -1,308 +1,179 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import gsap from "gsap";
+import { useState } from "react";
 import GlowingLoader from "../GlowingLoader";
 
-export default function PRCard({ pr, onClick }) {
-  const cardRef = useRef(null);
-  const scanLineRef = useRef(null);
-  const [navigating, setNavigating] = useState(false);
-  const ctaRef = useRef(null);
+// Review status pill: shows the score if a review is done, otherwise the review state.
+function getReviewBadge(review) {
+  const none = { label: "Not reviewed", color: "#8a8a8a", bg: "transparent", border: "rgba(255,255,255,0.2)" };
 
-  useEffect(() => {
-    const card = cardRef.current;
-    const scanLine = scanLineRef.current;
+  if (!review) return none;
 
-    if (!card || !scanLine) return;
+  if (review.status === "QUEUED" || review.status === "PROCESSING") {
+    return { label: "Reviewing...", color: "#96ACE0", bg: "rgba(150,172,224,0.12)", border: "transparent" };
+  }
 
-   const handleEnter = () => {
-  gsap.fromTo(
-    scanLine,
-    {
-      y: 0,
-      opacity: 0,
-    },
-    {
-      y: card.offsetHeight - 2,
-      opacity: 1,
-      duration: 0.8,
-      ease: "power2.inOut",
-    }
-  );
+  if (review.status === "FAILED") {
+    return { label: "Review failed", color: "#f87171", bg: "rgba(248,113,113,0.12)", border: "transparent" };
+  }
 
-  gsap.fromTo(
-    ctaRef.current,
-    {
-      opacity: 0,
-      scale: 0.95,
-    },
-    {
-      opacity: 1,
-      scale: 1,
-      duration: 0.4,
-      delay: 0.6,
-      ease: "power2.out",
-    }
-  );
-};
+  const score = review.score;
+  if (typeof score !== "number") return none;
 
- const handleLeave = () => {
-  gsap.to(scanLine, {
-    opacity: 0,
-    duration: 0.2,
-  });
+  if (score >= 80) return { label: `Score ${score}`, color: "#34d399", bg: "rgba(52,211,153,0.14)", border: "transparent" };
+  if (score >= 50) return { label: `Score ${score}`, color: "#fbbf24", bg: "rgba(251,191,36,0.14)", border: "transparent" };
+  return { label: `Score ${score}`, color: "#ff7b7b", bg: "rgba(255,92,92,0.14)", border: "transparent" };
+}
 
-  gsap.to(ctaRef.current, {
-    opacity: 0,
-    scale: 0.95,
-    duration: 0.2,
-    ease: "power2.in",
-  });
-};
-
-    card.addEventListener("mouseenter", handleEnter);
-    card.addEventListener("mouseleave", handleLeave);
-
-    return () => {
-      card.removeEventListener("mouseenter", handleEnter);
-      card.removeEventListener("mouseleave", handleLeave);
-    };
-  }, []);
-  if (navigating) {
+function PullRequestIcon({ color }) {
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#0a0a0a]">
-      <GlowingLoader />
-    </div>
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={color}
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      style={{ flexShrink: 0 }}
+    >
+      <circle cx="6" cy="18" r="2" />
+      <circle cx="6" cy="6" r="2" />
+      <circle cx="18" cy="18" r="2" />
+      <path d="M6 8v8" />
+      <path d="M11 6h5a2 2 0 0 1 2 2v8" />
+      <path d="M14 9l-3-3 3-3" />
+    </svg>
   );
 }
 
-  return (
-    <div
-      ref={cardRef}
-      onClick={() => {
-  setNavigating(true);
-  onClick();
-}}
-      className="group cursor-pointer"
-    >
+export default function PRCard({ pr, onClick }) {
+  const [navigating, setNavigating] = useState(false);
+  const [active, setActive] = useState(false); // hovered or keyboard-focused
 
-      {/* Outer Blue Border */}
+  // Optional fields. Pass them from your API; the row hides anything that is missing.
+  const review = pr.latestReview ?? null; // { score, status }
+  const hasStats = typeof pr.additions === "number" && typeof pr.deletions === "number";
+  const badge = getReviewBadge(review);
+  const isReviewed = review?.status === "COMPLETED";
+
+  function open() {
+    setNavigating(true);
+    onClick();
+  }
+
+  if (navigating) {
+    return (
       <div
         style={{
-          width: "100%",
-          minHeight: "200px",
-          backgroundColor: "#96ACE0",
-          padding: "1px",
-
-          clipPath:
-            "polygon(12px 0, calc(100% - 12px) 0, 100% 12px, 100% calc(100% - 12px), calc(100% - 12px) 100%, 12px 100%, 0 calc(100% - 12px), 0 12px)",
-
-          boxShadow:
-            "0 0 15px rgba(213,224,255,0.12)",
+          position: "fixed",
+          inset: 0,
+          zIndex: 100,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: "#0a0a0a",
         }}
       >
+        <GlowingLoader />
+      </div>
+    );
+  }
 
-        {/* Inner Dark Card */}
+  const details = [
+    `#${pr.number}`,
+    pr.headBranch && pr.baseBranch ? `${pr.headBranch} → ${pr.baseBranch}` : null,
+    pr.changedFiles != null ? `${pr.changedFiles} ${pr.changedFiles === 1 ? "file" : "files"}` : null,
+  ].filter(Boolean);
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={open}
+      onMouseEnter={() => setActive(true)}
+      onMouseLeave={() => setActive(false)}
+      onFocus={() => setActive(true)}
+      onBlur={() => setActive(false)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          open();
+        }
+      }}
+      style={{
+        display: "flex",
+        flexWrap: "wrap",
+        alignItems: "center",
+        gap: "12px 16px",
+        padding: "16px 12px",
+        borderBottom: "1px solid rgba(255,255,255,0.12)",
+        backgroundColor: active ? "rgba(255,255,255,0.03)" : "transparent",
+        cursor: "pointer",
+        outline: "none",
+        transition: "background-color 0.2s ease",
+      }}
+    >
+      <PullRequestIcon color={pr.state === "open" ? "#10b981" : "#6b7280"} />
+
+      {/* Title + details */}
+      <div style={{ flex: "1 1 260px", minWidth: 0 }}>
         <div
-          className="relative"
           style={{
-            minHeight: "198px",
-            backgroundColor: "#0b0b0d",
-
-            clipPath:
-              "polygon(12px 0, calc(100% - 12px) 0, 100% 12px, 100% calc(100% - 12px), calc(100% - 12px) 100%, 12px 100%, 0 calc(100% - 12px), 0 12px)",
-
-            padding: "32px",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            fontSize: "15px",
+            fontWeight: 500,
+            color: "#ffffff",
           }}
         >
+          {pr.title}
+        </div>
 
-          {/* Hover Overlay */}
-          <div
-            className="pointer-events-none absolute inset-0 z-10 opacity-0 transition-opacity duration-500 group-hover:opacity-100"
-            style={{
-              backgroundColor: "rgba(10, 10, 10, 0.45)",
-              backdropFilter: "blur(3px)",
-            }}
-          />
-
-
-          {/* Scan Line */}
-          <div
-            ref={scanLineRef}
-            className="pointer-events-none absolute left-0 top-0 z-20"
-            style={{
-              width: "100%",
-              height: "1px",
-              backgroundColor: "#D5E0FF",
-              boxShadow: "0 0 15px rgba(213,224,255,0.9)",
-              opacity: 0,
-            }}
-          />
-
-          {/* View PR CTA */}
-<div
-  ref={ctaRef}
-  style={{
-    position: "absolute",
-    left: "50%",
-    top: "50%",
-    transform: "translate(-50%, -50%)",
-    display: "flex",
-    alignItems: "center",
-    gap: "14px",
-    fontSize: "18px",
-    fontWeight: 700,
-    letterSpacing: "0.18em",
-    textTransform: "uppercase",
-    color: "#D5E0FF",
-    opacity: 0,
-    whiteSpace: "nowrap",
-    zIndex: 30,
-  }}
->
-  VIEW PULL REQUEST
-  <span style={{ fontSize: "24px" }}>↗</span>
-</div>
-
-
-          {/* Top Technical Accent */}
-          <div
-            className="absolute left-0 top-0"
-            style={{
-              width: "110px",
-              height: "1px",
-              backgroundColor: "#D5E0FF",
-            }}
-          />
-
-
-          {/* Top Right Accent */}
-          <div
-            className="absolute right-0 top-0"
-            style={{
-              width: "1px",
-              height: "40px",
-              backgroundColor: "rgba(150,172,224,0.7)",
-            }}
-          />
-
-
-          {/* Bottom Left Accent */}
-          <div
-            className="absolute bottom-0 left-0"
-            style={{
-              width: "40px",
-              height: "1px",
-              backgroundColor: "rgba(150,172,224,0.5)",
-            }}
-          />
-
-
-          {/* PR Number */}
-          <p
-            className="uppercase"
-            style={{
-              fontSize: "18px",
-              fontWeight: 700,
-              letterSpacing: "0.15em",
-              color: "#96ACE0",
-              marginBottom: "14px",
-            }}
-          >
-            #{pr.number}
-          </p>
-
-
-          {/* PR Title */}
-          <h3
-            className="font-syne uppercase"
-            style={{
-              fontSize: "22px",
-              lineHeight: "1.3",
-              fontWeight: 700,
-              letterSpacing: "0.06em",
-              color: "#ffffff",
-            }}
-          >
-            {pr.title}
-          </h3>
-
-
-          {/* PR Metadata */}
-          <div
-            className="flex items-center"
-            style={{
-              gap: "16px",
-              marginTop: "24px",
-            }}
-          >
-
-            {/* Head Branch */}
-            <span
-              className="uppercase"
-              style={{
-                fontSize: "10px",
-                letterSpacing: "0.15em",
-                color: "#6b7280",
-              }}
-            >
-              {pr.headBranch}
-            </span>
-
-
-            {/* Arrow */}
-            <span
-              style={{
-                color: "#96ACE0",
-              }}
-            >
-              →
-            </span>
-
-
-            {/* Base Branch */}
-            <span
-              className="uppercase"
-              style={{
-                fontSize: "10px",
-                letterSpacing: "0.15em",
-                color: "#6b7280",
-              }}
-            >
-              {pr.baseBranch}
-            </span>
-
-
-            {/* Separator */}
-            <span
-              style={{
-                width: "4px",
-                height: "4px",
-                backgroundColor: "rgba(150,172,224,0.5)",
-              }}
-            />
-
-
-            {/* State */}
-            <span
-              className="uppercase"
-              style={{
-                fontSize: "10px",
-                letterSpacing: "0.2em",
-                color:
-                  pr.state === "open"
-                    ? "#34d399"
-                    : "#6b7280",
-              }}
-            >
-              {pr.state}
-            </span>
-
-          </div>
-
+        <div style={{ marginTop: "4px", fontSize: "12px", color: "#8a8a8a" }}>
+          {details.join(" · ")}
+          {hasStats && (
+            <>
+              {details.length > 0 && " · "}
+              <span style={{ color: "#10b981" }}>+{pr.additions}</span>{" "}
+              <span style={{ color: "#ff6b6b" }}>-{pr.deletions}</span>
+            </>
+          )}
         </div>
       </div>
+
+      {/* Review badge */}
+      <span
+        style={{
+          padding: "3px 10px",
+          borderRadius: "999px",
+          border: `1px solid ${badge.border}`,
+          backgroundColor: badge.bg,
+          fontSize: "11px",
+          color: badge.color,
+          whiteSpace: "nowrap",
+        }}
+      >
+        {badge.label}
+      </span>
+
+      {/* Action (the whole row is clickable; this shows what will happen) */}
+      <span
+        style={{
+          padding: "7px 14px",
+          borderRadius: "8px",
+          border: `1px solid ${isReviewed ? "rgba(255,255,255,0.25)" : "#f2f2f2"}`,
+          backgroundColor: isReviewed ? "transparent" : "#f2f2f2",
+          color: isReviewed ? "#f2f2f2" : "#0b0b0b",
+          fontSize: "13px",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {isReviewed ? "View review" : "Run review"}
+      </span>
     </div>
   );
 }

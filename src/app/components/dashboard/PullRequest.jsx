@@ -1,79 +1,487 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import gsap from "gsap";
-import { ScrollTrigger } from "gsap/ScrollTrigger";
 import ReviewAnalysisLoader from "../ReviewAnalysisLoader";
-import {useReviewStatus} from "@/hooks/useReviewStatus";
+import DiffViewer from "./DiffViewer"; // keep DiffViewer.jsx in the same folder as this file
+import { useReviewStatus } from "@/hooks/useReviewStatus";
 
-gsap.registerPlugin(ScrollTrigger);
+/* ------------------------------------------------------------------ */
+/* Tokens                                                              */
+/* ------------------------------------------------------------------ */
+
+const PAGE_PAD = "clamp(20px, 4vw, 56px)";
+const NAV_HEIGHT = 90;
+
+const outlineText = {
+  color: "transparent",
+  WebkitTextStroke: "1px rgba(213,224,255,0.75)",
+};
+
+const monoLabel = {
+  margin: 0,
+  fontFamily: "monospace",
+  fontSize: "10px",
+  textTransform: "uppercase",
+  letterSpacing: "0.2em",
+};
+
+const SEVERITY_COLORS = {
+  CRITICAL: "#ff7b7b",
+  HIGH: "#ff7b7b",
+  MEDIUM: "#fbbf24",
+  LOW: "#96ACE0",
+};
+
+const SEVERITY_ORDER = ["CRITICAL", "HIGH", "MEDIUM", "LOW"];
+
+const clamp2 = {
+  display: "-webkit-box",
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: "vertical",
+  overflow: "hidden",
+};
+
+function scoreColor(score) {
+  if (score >= 80) return "#34d399";
+  if (score >= 50) return "#fbbf24";
+  return "#ff7b7b";
+}
+
+/* ------------------------------------------------------------------ */
+/* Small pieces                                                        */
+/* ------------------------------------------------------------------ */
+
+function Chip({ children, color = "#c9c9c9", mono = false, tint }) {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "6px",
+        padding: "6px 12px",
+        borderRadius: "999px",
+        border: "1px solid rgba(255,255,255,0.12)",
+        backgroundColor: tint ?? "transparent",
+        fontFamily: mono ? "monospace" : "inherit",
+        fontSize: "12px",
+        color,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function ScoreRing({ score }) {
+  const size = 104;
+  const stroke = 7;
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const pct = Math.max(0, Math.min(100, score ?? 0));
+  const color = scoreColor(score ?? 0);
+
+  return (
+    <div style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
+      <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }} aria-hidden="true">
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth={stroke} />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke={color}
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          strokeDasharray={`${(pct / 100) * c} ${c}`}
+        />
+      </svg>
+
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <span style={{ fontFamily: "var(--font-syne)", fontSize: "30px", fontWeight: 800, lineHeight: 1 }}>
+          {score ?? "—"}
+        </span>
+        <span style={{ ...monoLabel, marginTop: "4px", fontSize: "9px", color: "rgba(255,255,255,0.35)" }}>/100</span>
+      </div>
+    </div>
+  );
+}
+
+function FindingListItem({ finding, expanded, onSelect }) {
+  const color = SEVERITY_COLORS[finding.severity] ?? "#D5E0FF";
+  const where = finding.startLine ? `${finding.file}:${finding.startLine}` : finding.file;
+
+  return (
+    <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+      <button
+        type="button"
+        onClick={() => onSelect(finding)}
+        aria-expanded={expanded}
+        style={{
+          display: "flex",
+          gap: "12px",
+          width: "100%",
+          padding: "14px 0",
+          border: 0,
+          background: "transparent",
+          color: "inherit",
+          font: "inherit",
+          textAlign: "left",
+          cursor: "pointer",
+        }}
+      >
+        <span
+          aria-hidden="true"
+          style={{ marginTop: "6px", width: "8px", height: "8px", borderRadius: "50%", backgroundColor: color, flexShrink: 0 }}
+        />
+
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ ...clamp2, fontSize: "13px", lineHeight: 1.5, color: "#ffffff" }}>
+            {finding.title || finding.message}
+          </span>
+          <span
+            style={{
+              display: "block",
+              marginTop: "4px",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              fontFamily: "monospace",
+              fontSize: "11px",
+              color: "rgba(255,255,255,0.35)",
+            }}
+          >
+            {where}
+          </span>
+        </span>
+      </button>
+
+      {expanded && (
+        <div style={{ padding: "0 0 16px 20px" }}>
+          <p style={{ margin: 0, fontSize: "13px", lineHeight: 1.7, color: "rgba(255,255,255,0.65)" }}>
+            {finding.message}
+          </p>
+
+          {finding.suggestedCode && (
+            <pre
+              style={{
+                margin: "12px 0 0",
+                padding: "10px 12px",
+                overflowX: "auto",
+                borderLeft: "1px solid rgba(52,211,153,0.5)",
+                backgroundColor: "rgba(52,211,153,0.08)",
+                fontFamily: "monospace",
+                fontSize: "12px",
+                lineHeight: 1.7,
+                color: "#d1fae5",
+              }}
+            >
+              {finding.suggestedCode}
+            </pre>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReviewPanel({
+  review,
+  previousReview,
+  reviewing,
+  reviewError,
+  showPrevious,
+  onTogglePrevious,
+  onRun,
+}) {
+  const [expandedId, setExpandedId] = useState(null);
+
+  const result = review?.reviewResult ?? null;
+  const findings = Array.isArray(result?.findings) ? result.findings : [];
+  const previousResult = previousReview?.reviewResult ?? null;
+  const previousFindings = Array.isArray(previousResult?.findings) ? previousResult.findings : [];
+
+  const counts = SEVERITY_ORDER.map((key) => ({
+    key,
+    count: findings.filter((f) => f.severity === key).length,
+  })).filter((item) => item.count > 0);
+
+  const delta =
+    result && previousResult && typeof result.score === "number" && typeof previousResult.score === "number"
+      ? result.score - previousResult.score
+      : null;
+
+  // Scroll to the finding in the code if it is there, otherwise expand its details here.
+  function selectFinding(finding) {
+    const target = document.getElementById(`finding-${finding.id}`);
+
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+
+    setExpandedId((current) => (current === finding.id ? null : finding.id));
+  }
+
+  return (
+    <aside
+      style={{
+        flex: "0 1 400px",
+        minWidth: "300px",
+        position: "sticky",
+        top: `${NAV_HEIGHT + 20}px`,
+        alignSelf: "flex-start",
+        maxHeight: `calc(100vh - ${NAV_HEIGHT + 40}px)`,
+        overflowY: "auto",
+        border: "1px solid rgba(255,255,255,0.1)",
+        backgroundColor: "#0b0b0d",
+      }}
+    >
+      {/* Header */}
+      <div style={{ padding: "20px 24px", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
+        <p style={{ ...monoLabel, color: "#96ACE0" }}>PRISM review</p>
+        {review?.completedAt && (
+          <p style={{ margin: "6px 0 0", fontSize: "12px", color: "rgba(255,255,255,0.35)" }}>
+            Last run {new Date(review.completedAt).toLocaleDateString()}
+          </p>
+        )}
+      </div>
+
+      {result ? (
+        <>
+          {/* Score + severity */}
+          <div style={{ display: "flex", alignItems: "center", gap: "20px", padding: "24px" }}>
+            <ScoreRing score={result.score} />
+
+            <div style={{ minWidth: 0 }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                {counts.length === 0 && (
+                  <span style={{ fontSize: "13px", color: "#34d399" }}>No issues found</span>
+                )}
+
+                {counts.map(({ key, count }) => (
+                  <span
+                    key={key}
+                    style={{
+                      padding: "3px 10px",
+                      borderRadius: "999px",
+                      fontSize: "11px",
+                      color: SEVERITY_COLORS[key],
+                      backgroundColor: "rgba(255,255,255,0.06)",
+                    }}
+                  >
+                    {count} {key.toLowerCase()}
+                  </span>
+                ))}
+              </div>
+
+              {delta !== null && delta !== 0 && (
+                <p style={{ margin: "12px 0 0", fontSize: "12px", color: delta > 0 ? "#34d399" : "#ff7b7b" }}>
+                  {delta > 0 ? "+" : ""}
+                  {delta} vs previous review
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Summary */}
+          {result.summary && (
+            <div style={{ padding: "0 24px 24px" }}>
+              <p style={{ margin: 0, fontSize: "13px", lineHeight: 1.75, color: "rgba(255,255,255,0.65)" }}>
+                {result.summary}
+              </p>
+            </div>
+          )}
+
+          {/* Findings */}
+          {findings.length > 0 && (
+            <div style={{ padding: "0 24px 8px" }}>
+              <p style={{ ...monoLabel, marginBottom: "4px", color: "rgba(255,255,255,0.4)" }}>
+                Findings ({findings.length})
+              </p>
+
+              {findings.map((finding, index) => (
+                <FindingListItem
+                  key={finding.id ?? index}
+                  finding={finding}
+                  expanded={expandedId === finding.id}
+                  onSelect={selectFinding}
+                />
+              ))}
+            </div>
+          )}
+        </>
+      ) : (
+        <div style={{ padding: "32px 24px" }}>
+          <p style={{ margin: 0, fontSize: "15px", fontWeight: 500 }}>No review yet</p>
+          <p style={{ margin: "8px 0 0", fontSize: "13px", lineHeight: 1.7, color: "rgba(255,255,255,0.5)" }}>
+            Run PRISM on this pull request to get a score and line-by-line findings with suggested fixes.
+          </p>
+        </div>
+      )}
+
+      {/* Action */}
+      <div style={{ padding: "16px 24px 24px" }}>
+        <button
+          type="button"
+          disabled={reviewing}
+          onClick={onRun}
+          style={{
+            width: "100%",
+            padding: "16px 20px",
+            border: result ? "1px solid rgba(150,172,224,0.5)" : "1px solid #f2f2f2",
+            backgroundColor: result ? "transparent" : "#f2f2f2",
+            color: result ? "#D5E0FF" : "#0b0b0b",
+            fontFamily: "monospace",
+            fontSize: "12px",
+            fontWeight: 700,
+            textTransform: "uppercase",
+            letterSpacing: "0.16em",
+            cursor: reviewing ? "not-allowed" : "pointer",
+            opacity: reviewing ? 0.4 : 1,
+          }}
+        >
+          {reviewing ? "Analyzing..." : result ? "Review again ↗" : "Review PR ↗"}
+        </button>
+
+        {reviewError && (
+          <p
+            style={{
+              margin: "16px 0 0",
+              paddingLeft: "12px",
+              borderLeft: "1px solid rgba(248,113,113,0.5)",
+              fontSize: "12px",
+              lineHeight: 1.6,
+              color: "#f87171",
+            }}
+          >
+            {reviewError}
+          </p>
+        )}
+      </div>
+
+      {/* Previous review */}
+      {previousResult && (
+        <div style={{ padding: "0 24px 24px", borderTop: "1px solid rgba(255,255,255,0.1)" }}>
+          <button
+            type="button"
+            onClick={onTogglePrevious}
+            aria-expanded={showPrevious}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              width: "100%",
+              padding: "20px 0 0",
+              border: 0,
+              background: "transparent",
+              color: "inherit",
+              font: "inherit",
+              cursor: "pointer",
+              textAlign: "left",
+            }}
+          >
+            <span>
+              <span style={{ ...monoLabel, display: "block", color: "rgba(255,255,255,0.4)" }}>Previous review</span>
+              <span style={{ display: "block", marginTop: "6px", fontSize: "13px", color: "rgba(255,255,255,0.7)" }}>
+                Score <span style={{ color: scoreColor(previousResult.score ?? 0) }}>{previousResult.score ?? "—"}</span>
+                {previousReview.completedAt && ` · ${new Date(previousReview.completedAt).toLocaleDateString()}`}
+              </span>
+            </span>
+
+            <span style={{ fontSize: "12px", color: "#96ACE0" }}>{showPrevious ? "Hide" : "Show"}</span>
+          </button>
+
+          {showPrevious && (
+            <div style={{ marginTop: "12px" }}>
+              {previousResult.summary && (
+                <p style={{ margin: "0 0 8px", fontSize: "13px", lineHeight: 1.75, color: "rgba(255,255,255,0.55)" }}>
+                  {previousResult.summary}
+                </p>
+              )}
+
+              {previousFindings.map((finding, index) => (
+                <FindingListItem
+                  key={finding.id ?? index}
+                  finding={finding}
+                  expanded={expandedId === finding.id}
+                  onSelect={(f) => setExpandedId((current) => (current === f.id ? null : f.id))}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </aside>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Page                                                                */
+/* ------------------------------------------------------------------ */
 
 export default function PullRequest({ owner, repo, pullNumber }) {
-   const titleRef = useRef(null);
-   const repoInfoRef = useRef(null);
-const metadataRef = useRef(null);
-const filesRef = useRef(null);
-const diffHeaderRef = useRef(null);
-const previousReviewRef = useRef(null);
-const reviewScoreRef = useRef(null);
-const reviewActionRef = useRef(null);
+  const titleRef = useRef(null);
+
   const [pullRequest, setPullRequest] = useState(null);
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [review, setReview] = useState(null);
-const [previousReview, setPreviousReview] = useState(null);
-const [showPreviousReview, setShowPreviousReview] = useState(false);
+  const [previousReview, setPreviousReview] = useState(null);
+  const [showPrevious, setShowPrevious] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [reviewError, setReviewError] = useState("");
-const [showArchivedDetails, setShowArchivedDetails] = useState(false);
   const [showLoader, setShowLoader] = useState(false); // is the loader on screen?
-const [polling, setPolling] = useState(false);       // should we ask the backend for status?
- 
-// The hook calls this ONE time, when the review is finished.
-// It runs from the hook's fetch callback, not from an effect, so React is happy.
-const handleFinish = (finished) => {
-  if (finished.status === "COMPLETED") {
-    setPreviousReview(review);
-setReview(finished);
-setShowPreviousReview(false);
-setReviewing(false);
-setPolling(false);
- 
-    // let the user see the green "completed" state for a moment
-    setTimeout(() => setShowLoader(false), 1800);
-  } else {
-    // FAILED or CANCELLED: keep the loader open so the user can read the error
-    setReviewError(finished.errorMessage || "Review failed. Please try again.");
-    setReviewing(false);
-    setPolling(false);
-  }
-};
- 
-const { review: liveReview, setReview: setLiveReview } = useReviewStatus({
-  owner,
-  repo,
-  pullNumber,
-  enabled: polling,
-  onFinish: handleFinish,
-});
+  const [polling, setPolling] = useState(false); // should we ask the backend for status?
 
-const liveStatus = liveReview?.status ?? "QUEUED";
- 
+  // The hook calls this ONE time, when the review is finished.
+  const handleFinish = (finished) => {
+    if (finished.status === "COMPLETED") {
+      setPreviousReview(review);
+      setReview(finished);
+      setShowPrevious(false);
+      setReviewing(false);
+      setPolling(false);
+
+      // let the user see the green "completed" state for a moment
+      setTimeout(() => setShowLoader(false), 1800);
+    } else {
+      // FAILED or CANCELLED: keep the loader open so the user can read the error
+      setReviewError(finished.errorMessage || "Review failed. Please try again.");
+      setReviewing(false);
+      setPolling(false);
+    }
+  };
+
+  const { review: liveReview, setReview: setLiveReview } = useReviewStatus({
+    owner,
+    repo,
+    pullNumber,
+    enabled: polling,
+    onFinish: handleFinish,
+  });
+
+  const liveStatus = liveReview?.status ?? "QUEUED";
 
   useEffect(() => {
     async function fetchPullRequest() {
       try {
         const [prResponse, filesResponse, reviewResponse] = await Promise.all([
-          fetch(
-            `/api/repositories/${owner}/${repo}/pulls/${pullNumber}`
-          ),
-          fetch(
-            `/api/repositories/${owner}/${repo}/pulls/${pullNumber}/files`
-          ),
-            fetch(
-    `/api/repositories/${owner}/${repo}/pulls/${pullNumber}/review`
-  ),
+          fetch(`/api/repositories/${owner}/${repo}/pulls/${pullNumber}`),
+          fetch(`/api/repositories/${owner}/${repo}/pulls/${pullNumber}/files`),
+          fetch(`/api/repositories/${owner}/${repo}/pulls/${pullNumber}/review`),
         ]);
 
         if (!prResponse.ok || !filesResponse.ok) {
@@ -82,15 +490,15 @@ const liveStatus = liveReview?.status ?? "QUEUED";
 
         const prResult = await prResponse.json();
         const filesResult = await filesResponse.json();
-        const reviewResult = await reviewResponse.json();
+        // A failed review lookup should not block the page from loading.
+        const reviewResult = reviewResponse.ok ? await reviewResponse.json() : null;
 
         setPullRequest(prResult.data);
         setFiles(filesResult.data ?? []);
-        setReview(reviewResult.data?.latestAnalysis ?? null);
-setPreviousReview(reviewResult.data?.previousReview ?? null);
-        
-      } catch (error) {
-        console.error(error);
+        setReview(reviewResult?.data?.latestAnalysis ?? null);
+        setPreviousReview(reviewResult?.data?.previousReview ?? null);
+      } catch (err) {
+        console.error(err);
         setError("Unable to load pull request.");
       } finally {
         setLoading(false);
@@ -100,138 +508,61 @@ setPreviousReview(reviewResult.data?.previousReview ?? null);
     fetchPullRequest();
   }, [owner, repo, pullNumber]);
 
-
+  // Title animation (skipped for visitors who prefer reduced motion)
   useEffect(() => {
-  if (loading || !pullRequest || !titleRef.current) return;
+    if (loading || !pullRequest || !titleRef.current) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
-  const chars = titleRef.current.querySelectorAll(".char");
+    const ctx = gsap.context(() => {
+      gsap.from(titleRef.current.querySelectorAll(".char"), {
+        opacity: 0,
+        yPercent: 120,
+        stagger: 0.02,
+        duration: 0.8,
+        ease: "back.out",
+      });
+    }, titleRef);
 
-  const timeline = gsap.timeline();
+    return () => ctx.revert();
+  }, [loading, pullRequest]);
 
-  timeline.from(chars, {
-    opacity: 0,
-    yPercent: 130,
-    stagger: 0.04,
-    duration: 0.9,
-    ease: "back.out",
-  });
+  async function startReview() {
+    try {
+      // Forget the previous live review for this new run.
+      setLiveReview(null);
 
-  timeline.from(
-    repoInfoRef.current,
-    {
-      opacity: 0,
-      y: 20,
-      duration: 0.6,
-      ease: "power3.out",
-    },
-    "-=0.35"
+      setReviewError("");
+      setShowLoader(true);
+      setReviewing(true);
+
+      const response = await fetch(`/api/repositories/${owner}/${repo}/pulls/${pullNumber}/review`, {
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        throw new Error("Could not start the review. Please try again.");
+      }
+
+      // Only start polling after the new review has been created.
+      setPolling(true);
+    } catch (err) {
+      console.error("REVIEW START ERROR:", err);
+
+      setReviewError(err instanceof Error ? err.message : "Could not start the review. Please try again.");
+
+      setReviewing(false);
+      setShowLoader(false);
+    }
+  }
+
+  const findings = useMemo(
+    () => (Array.isArray(review?.reviewResult?.findings) ? review.reviewResult.findings : []),
+    [review]
   );
-
-  timeline.from(
-    metadataRef.current,
-    {
-      opacity: 0,
-      y: 20,
-      duration: 0.6,
-      ease: "power3.out",
-    },
-    "-=0.3"
-  );
-  
-}, [loading, pullRequest]);
-
-
-
-useEffect(() => {
-  if (loading || !diffHeaderRef.current || !filesRef.current) return;
-
-  gsap.from(diffHeaderRef.current, {
-    opacity: 0,
-    y: 30,
-    duration: 0.7,
-    ease: "power3.out",
-    scrollTrigger: {
-      trigger: diffHeaderRef.current,
-      start: "top 85%",
-       toggleActions: "play reverse play reverse",
-    },
-  });
-
-  const files = filesRef.current.querySelectorAll(".diff-file");
-
-  gsap.from(files, {
-    opacity: 0,
-    y: 40,
-    stagger: 0.15,
-    duration: 0.7,
-    ease: "power3.out",
-    scrollTrigger: {
-      trigger: filesRef.current,
-      start: "top 80%",
-      once: true,
-    },
-  });
-}, [loading, files]);
-
-
-useEffect(() => {
-  if (loading || !previousReviewRef.current) return;
-
-  gsap.from(previousReviewRef.current, {
-    opacity: 0,
-    y: 50,
-    duration: 0.8,
-    ease: "power3.out",
-    scrollTrigger: {
-      trigger: previousReviewRef.current,
-      start: "top 80%",
-      once: true,
-      
-    },
-  });
-}, [loading, review]);
-
-
-useEffect(() => {
-  if (loading || !reviewScoreRef.current) return;
-
-  gsap.from(reviewScoreRef.current, {
-    opacity: 0,
-    scale: 0.7,
-    y: 20,
-    duration: 0.8,
-    ease: "back.out(1.7)",
-    scrollTrigger: {
-      trigger: reviewScoreRef.current,
-      start: "top 85%",
-       toggleActions: "play reverse play reverse",
-    },
-  });
-}, [loading, review]);
-
-
-
-
-
-useEffect(() => {
-  if (loading || !reviewActionRef.current) return;
-
-  gsap.from(reviewActionRef.current, {
-    opacity: 0,
-    y: 50,
-    duration: 0.8,
-    ease: "power3.out",
-    scrollTrigger: {
-      trigger: reviewActionRef.current,
-      start: "top 85%",
-      once: true,
-    },
-  });
-}, [loading]);
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-[#0a0a0a] text-white p-10">
+      <main style={{ minHeight: "100vh", backgroundColor: "#0a0a0a", color: "#ffffff", padding: "40px" }}>
         Loading pull request...
       </main>
     );
@@ -239,1810 +570,319 @@ useEffect(() => {
 
   if (error) {
     return (
-      <main className="min-h-screen bg-[#0a0a0a] text-white p-10">
-        <p className="text-red-400">{error}</p>
+      <main style={{ minHeight: "100vh", backgroundColor: "#0a0a0a", color: "#ffffff", padding: "40px" }}>
+        <p style={{ color: "#f87171" }}>{error}</p>
       </main>
     );
   }
 
- return (
-  <main
-    style={{
-      minHeight: "100vh",
-      backgroundColor: "#0a0a0a",
-      color: "#ffffff",
-      overflowX: "hidden",
-    }}
-  >
-
-
+  return (
+    // overflowX "clip" (not "hidden") so the sticky navbar and sticky review panel keep working.
+    <main style={{ minHeight: "100vh", backgroundColor: "#0a0a0a", color: "#ffffff", overflowX: "clip" }}>
+      {/* Analysis loader overlay */}
       {showLoader && (
-      <div
-        style={{
-          position: "fixed",
-          inset: 0,
-          zIndex: 100,
-          overflowY: "auto",
-          backgroundColor: "#050507",
-        }}
-      >
-        <ReviewAnalysisLoader
-          status={liveStatus}
-          message={liveReview?.errorMessage}
-        />
+        <div style={{ position: "fixed", inset: 0, zIndex: 100, overflowY: "auto", backgroundColor: "#050507" }}>
+          <ReviewAnalysisLoader status={liveStatus} message={liveReview?.errorMessage} />
 
-        {(liveStatus === "FAILED" ||
-          liveStatus === "CANCELLED") && (
-          <button
-            onClick={() => setShowLoader(false)}
-            style={{
-              position: "fixed",
-              bottom: "48px",
-              left: "50%",
-              transform: "translateX(-50%)",
-              background: "transparent",
-              border:
-                "1px solid rgba(150,172,224,0.45)",
-              color: "#D5E0FF",
-              padding: "12px 22px",
-              fontFamily: "var(--font-syne)",
-              fontSize: "12px",
-              fontWeight: 700,
-              letterSpacing: "0.16em",
-              textTransform: "uppercase",
-              cursor: "pointer",
-            }}
-          >
-            CLOSE ×
-          </button>
-        )}
-      </div>
-    )}
-
-    {/* ========================================================= */}
-    {/* TOP NAV */}
-    {/* ========================================================= */}
-
-    <nav
-      style={{
-        position: "sticky",
-        top: 0,
-        zIndex: 50,
-        width: "100%",
-        height: "90px",
-        backgroundColor: "#0a0a0a",
-        borderBottom: "1px solid rgba(150,172,224,0.2)",
-      }}
-    >
-      <div
-        style={{
-          height: "100%",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "0 40px",
-        }}
-      >
-
-        {/* PRISM */}
-
-        <div>
-          <img
-            src="/assets/logo.png"
-            alt="PRISM"
-            style={{
-              width: "112px",
-              height: "auto",
-              display: "block",
-            }}
-          />
+          {(liveStatus === "FAILED" || liveStatus === "CANCELLED") && (
+            <button
+              onClick={() => setShowLoader(false)}
+              style={{
+                position: "fixed",
+                bottom: "48px",
+                left: "50%",
+                transform: "translateX(-50%)",
+                background: "transparent",
+                border: "1px solid rgba(150,172,224,0.45)",
+                color: "#D5E0FF",
+                padding: "12px 22px",
+                fontFamily: "var(--font-syne)",
+                fontSize: "12px",
+                fontWeight: 700,
+                letterSpacing: "0.16em",
+                textTransform: "uppercase",
+                cursor: "pointer",
+              }}
+            >
+              CLOSE ×
+            </button>
+          )}
         </div>
+      )}
 
-
-        {/* PAGE LABEL */}
-
+      {/* Sticky top nav */}
+      <nav
+        style={{
+          position: "sticky",
+          top: 0,
+          zIndex: 50,
+          width: "100%",
+          height: `${NAV_HEIGHT}px`,
+          backgroundColor: "rgba(10,10,10,0.92)",
+          backdropFilter: "blur(10px)",
+          borderBottom: "1px solid rgba(150,172,224,0.2)",
+        }}
+      >
         <div
           style={{
-            fontFamily: "var(--font-syne)",
-            fontSize: "20px",
-            fontWeight: 800,
-            textTransform: "uppercase",
-            letterSpacing: "0.16em",
+            height: "100%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "24px",
+            padding: `0 ${PAGE_PAD}`,
           }}
         >
-          <span
+          <div style={{ display: "flex", alignItems: "center", gap: "28px", minWidth: 0 }}>
+            <img src="/assets/logo.png" alt="PRISM" style={{ width: "112px", height: "auto", display: "block" }} />
+
+            <Link
+              href={`/dashboard/${owner}/${repo}`}
+              style={{
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                fontSize: "12px",
+                textTransform: "uppercase",
+                letterSpacing: "0.16em",
+                color: "#8a8a8a",
+                textDecoration: "none",
+              }}
+            >
+              ← {repo}
+            </Link>
+          </div>
+
+          <div
             style={{
-              color: "transparent",
-              WebkitTextStroke: "1px rgba(213,224,255,0.75)",
+              fontFamily: "var(--font-syne)",
+              fontSize: "clamp(14px, 1.6vw, 20px)",
+              fontWeight: 800,
+              textTransform: "uppercase",
+              letterSpacing: "0.16em",
+              whiteSpace: "nowrap",
+              ...outlineText,
             }}
           >
             PULL REQUEST
-          </span>
+          </div>
         </div>
-
-      </div>
-
-
-      {/* NAV GLOW LINE */}
-
-      <div
-        style={{
-          position: "absolute",
-          bottom: 0,
-          left: 0,
-          width: "100%",
-          height: "1px",
-          backgroundColor: "rgba(150,172,224,0.2)",
-          boxShadow: "0 0 12px rgba(213,224,255,0.35)",
-        }}
-      />
-
-    </nav>
-
-
-    {/* ========================================================= */}
-    {/* MAIN CONTENT */}
-    {/* ========================================================= */}
-
-    <div
-      style={{
-        width: "100%",
-        padding: "64px 40px 128px",
-      }}
-    >
-
-      {/* ======================================================= */}
-      {/* PR HERO */}
-      {/* ======================================================= */}
-
-      <section
-        style={{
-          borderBottom: "1px solid rgba(255,255,255,0.1)",
-          paddingBottom: "64px",
-        }}
-      >
-
-        {/* TECHNICAL LABEL */}
 
         <div
           style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "16px",
-            marginBottom: "32px",
-            fontFamily: "monospace",
-            fontSize: "11px",
-            textTransform: "uppercase",
-            letterSpacing: "0.2em",
-            color: "#96ACE0",
+            position: "absolute",
+            bottom: 0,
+            left: 0,
+            width: "100%",
+            height: "1px",
+            boxShadow: "0 0 12px rgba(213,224,255,0.35)",
+            pointerEvents: "none",
           }}
-        >
-          <span>/02</span>
+        />
+      </nav>
 
-          <span
-            style={{
-              width: "64px",
-              height: "1px",
-              backgroundColor: "rgba(150,172,224,0.4)",
-            }}
-          />
-
-          <span>CODE ANALYSIS</span>
-        </div>
-
-
-        {/* PR TITLE */}
-
-       <h1
-  ref={titleRef}
-  style={{
-    margin: 0,
-    maxWidth: "900px",
-    fontFamily: "var(--font-syne)",
-    fontSize: "clamp(28px, 3.2vw, 52px)",
-    fontWeight: 800,
-    lineHeight: 0.95,
-    letterSpacing: "-0.03em",
-    textTransform: "uppercase",
-    overflow: "hidden",
-  }}
->
-  {pullRequest.title.split("").map((char, index) => (
-    <span
-      key={index}
-      className="char"
-      style={{
-        display: "inline-block",
-        whiteSpace: char === " " ? "pre" : "normal",
-      }}
-    >
-      {char}
-    </span>
-  ))}
-</h1>
-
-
-        {/* PR NUMBER */}
-
-        <div
-          style={{
-            marginTop: "20px",
-            fontFamily: "monospace",
-            fontSize: "13px",
-            textTransform: "uppercase",
-            letterSpacing: "0.15em",
-            color: "rgba(255,255,255,0.4)",
-          }}
-        >
-          PULL REQUEST #{pullRequest.number}
-        </div>
-
-
-        {/* ===================================================== */}
-        {/* REPOSITORY + BRANCH */}
-        {/* ===================================================== */}
-
-        <div
-          ref={repoInfoRef}
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-            gap: "40px",
-            marginTop: "56px",
-            paddingTop: "32px",
-            borderTop: "1px solid rgba(255,255,255,0.1)",
-          }}
-        >
-
-          {/* REPOSITORY */}
-
-          <div>
-
-            <p
-              style={{
-                margin: "0 0 12px",
-                fontFamily: "monospace",
-                fontSize: "10px",
-                textTransform: "uppercase",
-                letterSpacing: "0.2em",
-                color: "rgba(255,255,255,0.35)",
-              }}
-            >
-              Repository
-            </p>
-
-            <p
-              style={{
-                margin: 0,
-                fontFamily: "monospace",
-                fontSize: "18px",
-                color: "#ffffff",
-              }}
-            >
-              {owner}
-
-              <span
-                style={{
-                  margin: "0 10px",
-                  color: "#96ACE0",
-                }}
-              >
-                /
-              </span>
-
-              {repo}
-            </p>
-
-          </div>
-
-
-          {/* BRANCH */}
-
-          <div>
-
-            <p
-              style={{
-                margin: "0 0 12px",
-                fontFamily: "monospace",
-                fontSize: "10px",
-                textTransform: "uppercase",
-                letterSpacing: "0.2em",
-                color: "rgba(255,255,255,0.35)",
-              }}
-            >
-              Branch
-            </p>
-
-            <p
-              style={{
-                margin: 0,
-                fontFamily: "monospace",
-                fontSize: "18px",
-                color: "#ffffff",
-              }}
-            >
-              {pullRequest.headBranch}
-
-              <span
-                style={{
-                  margin: "0 12px",
-                  color: "#96ACE0",
-                }}
-              >
-                →
-              </span>
-
-              {pullRequest.baseBranch}
-            </p>
-
-          </div>
-
-        </div>
-
-
-        {/* ===================================================== */}
-        {/* PR METADATA */}
-        {/* ===================================================== */}
-
-        <div
-         ref={metadataRef}
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-            gap: "1px",
-            marginTop: "40px",
-            border: "1px solid rgba(255,255,255,0.1)",
-            backgroundColor: "rgba(255,255,255,0.1)",
-          }}
-        >
-
-          {/* STATUS */}
-
+      <div style={{ maxWidth: "1680px", margin: "0 auto", padding: `48px ${PAGE_PAD} 120px` }}>
+        {/* Hero */}
+        <section>
           <div
             style={{
-              backgroundColor: "#0a0a0a",
-              padding: "20px",
-            }}
-          >
-            <p
-              style={{
-                margin: 0,
-                fontFamily: "monospace",
-                fontSize: "10px",
-                textTransform: "uppercase",
-                letterSpacing: "0.2em",
-                color: "rgba(255,255,255,0.3)",
-              }}
-            >
-              Status
-            </p>
-
-            <p
-              style={{
-                margin: "12px 0 0",
-                fontFamily: "monospace",
-                fontSize: "13px",
-                textTransform: "uppercase",
-                color: "#D5E0FF",
-              }}
-            >
-              {pullRequest.state}
-            </p>
-          </div>
-
-
-          {/* AUTHOR */}
-
-          <div
-            style={{
-              backgroundColor: "#0a0a0a",
-              padding: "20px",
-            }}
-          >
-            <p
-              style={{
-                margin: 0,
-                fontFamily: "monospace",
-                fontSize: "10px",
-                textTransform: "uppercase",
-                letterSpacing: "0.2em",
-                color: "rgba(255,255,255,0.3)",
-              }}
-            >
-              Author
-            </p>
-
-            <p
-              style={{
-                margin: "12px 0 0",
-                fontFamily: "monospace",
-                fontSize: "13px",
-                color: "#ffffff",
-              }}
-            >
-              {pullRequest.author}
-            </p>
-          </div>
-
-
-          {/* FILES */}
-
-          <div
-            style={{
-              backgroundColor: "#0a0a0a",
-              padding: "20px",
-            }}
-          >
-            <p
-              style={{
-                margin: 0,
-                fontFamily: "monospace",
-                fontSize: "10px",
-                textTransform: "uppercase",
-                letterSpacing: "0.2em",
-                color: "rgba(255,255,255,0.3)",
-              }}
-            >
-              Files Changed
-            </p>
-
-            <p
-              style={{
-                margin: "12px 0 0",
-                fontFamily: "monospace",
-                fontSize: "13px",
-                color: "#ffffff",
-              }}
-            >
-              {pullRequest.changedFiles}
-            </p>
-          </div>
-
-
-          {/* CHANGES */}
-
-          <div
-            style={{
-              backgroundColor: "#0a0a0a",
-              padding: "20px",
-            }}
-          >
-            <p
-              style={{
-                margin: 0,
-                fontFamily: "monospace",
-                fontSize: "10px",
-                textTransform: "uppercase",
-                letterSpacing: "0.2em",
-                color: "rgba(255,255,255,0.3)",
-              }}
-            >
-              Changes
-            </p>
-
-            <p
-              style={{
-                margin: "12px 0 0",
-                fontFamily: "monospace",
-                fontSize: "13px",
-              }}
-            >
-              <span style={{ color: "#D5E0FF" }}>
-                +{pullRequest.additions}
-              </span>
-
-              <span
-                style={{
-                  margin: "0 8px",
-                  color: "rgba(255,255,255,0.2)",
-                }}
-              >
-                /
-              </span>
-
-              <span style={{ color: "rgba(255,255,255,0.5)" }}>
-                -{pullRequest.deletions}
-              </span>
-            </p>
-          </div>
-
-        </div>
-
-      </section>
-
-
-      {/* ======================================================= */}
-      {/* CHANGED FILES */}
-      {/* ======================================================= */}
-
-      <section
-        style={{
-          paddingTop: "80px",
-        }}
-      >
-
-        {/* SECTION HEADER */}
-
-        <div
-          ref={diffHeaderRef}
-          style={{
-            display: "flex",
-            alignItems: "flex-end",
-            justifyContent: "space-between",
-            marginBottom: "40px",
-            paddingBottom: "20px",
-            borderBottom: "1px solid rgba(255,255,255,0.1)",
-          }}
-        >
-
-          <div>
-
-            <p
-              style={{
-                margin: 0,
-                fontFamily: "monospace",
-                fontSize: "10px",
-                textTransform: "uppercase",
-                letterSpacing: "0.2em",
-                color: "#96ACE0",
-              }}
-            >
-              Changed Files
-            </p>
-
-            <h2
-              style={{
-                margin: "12px 0 0",
-                fontFamily: "var(--font-syne)",
-                fontSize: "40px",
-                fontWeight: 800,
-                lineHeight: 1,
-                letterSpacing: "-0.03em",
-                textTransform: "uppercase",
-              }}
-            >
-              CODE{" "}
-
-              <span
-                style={{
-                  color: "transparent",
-                  WebkitTextStroke:
-                    "1px rgba(213,224,255,0.75)",
-                }}
-              >
-                DIFF
-              </span>
-            </h2>
-
-          </div>
-
-
-          <div
-            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "16px",
+              marginBottom: "24px",
               fontFamily: "monospace",
               fontSize: "11px",
               textTransform: "uppercase",
-              letterSpacing: "0.15em",
-              color: "rgba(255,255,255,0.3)",
+              letterSpacing: "0.2em",
+              color: "#96ACE0",
             }}
           >
-            {files.length} FILE
-            {files.length !== 1 ? "S" : ""}
+            <span>/02</span>
+            <span style={{ width: "64px", height: "1px", backgroundColor: "rgba(150,172,224,0.4)" }} />
+            <span>CODE ANALYSIS</span>
           </div>
 
-        </div>
-
-
-        {/* FILES */}
-
-        <div
-          ref={filesRef}
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "32px",
-          }}
-        >
-
-          {files.map((file, index) => (
-
-            <div
-  key={file.sha}
-  className="diff-file"
-  style={{
-    backgroundColor: "#0b0b0d",
-    border: "1px solid rgba(255,255,255,0.1)",
-  }}
->
-
-              {/* FILE HEADER */}
-
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: "16px",
-                  padding: "20px 24px",
-                  borderBottom:
-                    "1px solid rgba(255,255,255,0.1)",
-                }}
-              >
-
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "16px",
-                  }}
-                >
-
-                  <span
-                    style={{
-                      fontFamily: "monospace",
-                      fontSize: "12px",
-                      color: "#96ACE0",
-                    }}
-                  >
-                    /{String(index + 1).padStart(2, "0")}
-                  </span>
-
-                  <span
-                    style={{
-                      width: "32px",
-                      height: "1px",
-                      backgroundColor:
-                        "rgba(255,255,255,0.15)",
-                    }}
-                  />
-
-                  <h3
-                    style={{
-                      margin: 0,
-                      fontFamily: "monospace",
-                      fontSize: "14px",
-                      fontWeight: 400,
-                      color: "#ffffff",
-                    }}
-                  >
-                    {file.filename}
-                  </h3>
-
-                </div>
-
-
-                {/* FILE METADATA */}
-
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "20px",
-                    fontFamily: "monospace",
-                    fontSize: "11px",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.12em",
-                  }}
-                >
-
-                  <span
-                    style={{
-                      color: "rgba(255,255,255,0.35)",
-                    }}
-                  >
-                    {file.status}
-                  </span>
-
-                  <span style={{ color: "#D5E0FF" }}>
-                    +{file.additions}
-                  </span>
-
-                  <span
-                    style={{
-                      color: "rgba(255,255,255,0.45)",
-                    }}
-                  >
-                    -{file.deletions}
-                  </span>
-
-                </div>
-
-              </div>
-
-
-              {/* CODE */}
-
-              {file.patch && (
-                <div
-                  style={{
-                    position: "relative",
-                    overflowX: "auto",
-                  }}
-                >
-
-                  {/* ANALYSIS LINE */}
-
-                  <div
-                    style={{
-                      position: "absolute",
-                      top: 0,
-                      bottom: 0,
-                      left: "74px",
-                      width: "1px",
-                      backgroundColor:
-                        "rgba(150,172,224,0.08)",
-                      pointerEvents: "none",
-                    }}
-                  />
-
-                  <pre
-                    style={{
-                      minHeight: "120px",
-                      margin: 0,
-                      padding: "24px 24px 24px 96px",
-                      fontFamily: "monospace",
-                      fontSize: "13px",
-                      lineHeight: 1.8,
-                      color: "rgba(255,255,255,0.7)",
-                      background:
-                        "linear-gradient(90deg, rgba(150,172,224,0.025), transparent 25%)",
-                      whiteSpace: "pre",
-                    }}
-                  >
-                    {file.patch}
-                  </pre>
-
-                </div>
-              )}
-
-            </div>
-
-          ))}
-
-        </div>
-
-      </section>
-
-
-      {/* ======================================================= */}
-      {/* Latest Analysis */}
-      {/* ======================================================= */}
-
-      {review?.reviewResult && (
-
-        <section
-          style={{
-            marginTop: "96px",
-            paddingTop: "64px",
-            borderTop: "1px solid rgba(255,255,255,0.1)",
-          }}
-        >
-
-          <div
-           ref={previousReviewRef}
+          {/* Letters are grouped by word, so a line never breaks in the middle of a word */}
+          <h1
+            ref={titleRef}
             style={{
-              display: "grid",
-              gridTemplateColumns: "minmax(0, 1fr) minmax(0, 2fr)",
-              gap: "48px",
+              margin: 0,
+              maxWidth: "1100px",
+              fontFamily: "var(--font-syne)",
+              fontSize: "clamp(26px, 3.4vw, 48px)",
+              fontWeight: 800,
+              lineHeight: 1.1,
+              letterSpacing: "-0.02em",
+              textTransform: "uppercase",
+              overflow: "hidden",
+              paddingBottom: "4px",
             }}
           >
-
-            {/* LEFT */}
-
-            <div>
-
-              <p
-                style={{
-                  margin: 0,
-                  fontFamily: "monospace",
-                  fontSize: "10px",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.2em",
-                  color: "#96ACE0",
-                }}
-              >
-                Latest Analysis
-              </p>
-
-
-              <h2
-                style={{
-                  margin: "16px 0 0",
-                  fontFamily: "var(--font-syne)",
-                  fontSize: "50px",
-                  fontWeight: 800,
-                  lineHeight: 0.95,
-                  letterSpacing: "-0.04em",
-                  textTransform: "uppercase",
-                }}
-              >
-                LATEST
-                <br />
-
-                <span
-                  style={{
-                    color: "transparent",
-                    WebkitTextStroke:
-                      "1px rgba(213,224,255,0.75)",
-                  }}
-                >
-                  REVIEW
-                </span>
-              </h2>
-
-
-              <p
-                style={{
-                  maxWidth: "380px",
-                  margin: "24px 0 0",
-                  fontFamily: "monospace",
-                  fontSize: "12px",
-                  lineHeight: 1.8,
-                  color: "rgba(255,255,255,0.4)",
-                }}
-              >
-               PRISM has analyzed this pull request. You can
-inspect the latest result or run a new analysis.
-              </p>
-
-
-              <p
-                style={{
-                  marginTop: "32px",
-                  fontFamily: "monospace",
-                  fontSize: "11px",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.12em",
-                  color: "rgba(255,255,255,0.3)",
-                }}
-              >
-                Last reviewed:{" "}
-                {new Date(
-                  review.completedAt
-                ).toLocaleDateString()}
-              </p>
-
-            </div>
-
-
-            {/* RIGHT */}
-
-            <div>
-
-              {!showPreviousReview && (
-
-                <button
-                  style={{
-                    width: "100%",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "20px 24px",
-                    backgroundColor: "transparent",
-                    border: "1px solid rgba(255,255,255,0.15)",
-                    color: "#ffffff",
-                    cursor: "pointer",
-                    fontFamily: "monospace",
-                    fontSize: "13px",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.12em",
-                  }}
-                  onClick={() =>
-                    setShowPreviousReview(true)
-                  }
-                >
-                  <span>
-                    View analysis details
+            {pullRequest.title.split(" ").map((word, w) => (
+              <span key={w} style={{ display: "inline-block", whiteSpace: "nowrap", marginRight: "0.28em" }}>
+                {word.split("").map((char, i) => (
+                  <span key={i} className="char" style={{ display: "inline-block" }}>
+                    {char}
                   </span>
+                ))}
+              </span>
+            ))}
+          </h1>
 
-                  <span
-                    style={{
-                      fontSize: "20px",
-                      color: "#D5E0FF",
-                    }}
-                  >
-                    ↗
-                  </span>
-                </button>
-
-              )}
-
-
-              {showPreviousReview &&
-                review.reviewResult && (
-
-                  <div
-                    style={{
-                      border:
-                        "1px solid rgba(255,255,255,0.1)",
-                      backgroundColor: "#0b0b0d",
-                    }}
-                  >
-
-                    {/* SCORE */}
-
-                    <div
-                      style={{
-                        padding: "32px 28px",
-                        borderBottom:
-                          "1px solid rgba(255,255,255,0.1)",
-                      }}
-                    >
-
-                      <p
-                        style={{
-                          margin: 0,
-                          fontFamily: "monospace",
-                          fontSize: "10px",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.2em",
-                          color: "rgba(255,255,255,0.3)",
-                        }}
-                      >
-                        Score
-                      </p>
-
-
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "flex-end",
-                          gap: "12px",
-                          marginTop: "12px",
-                        }}
-                      >
-
-                        <span
-                          ref={reviewScoreRef}
-                          style={{
-                            fontFamily: "var(--font-syne)",
-                            fontSize: "72px",
-                            fontWeight: 800,
-                            lineHeight: 1,
-                            color: "#D5E0FF",
-                          }}
-                        >
-                          {review.reviewResult.score}
-                        </span>
-
-                        <span
-                          style={{
-                            marginBottom: "8px",
-                            fontFamily: "monospace",
-                            fontSize: "13px",
-                            color: "rgba(255,255,255,0.3)",
-                          }}
-                        >
-                          /100
-                        </span>
-
-                      </div>
-
-                    </div>
-
-
-                    {/* SUMMARY */}
-
-                    {review.reviewResult.summary && (
-
-                      <div
-                        style={{
-                          padding: "32px 28px",
-                          borderBottom:
-                            "1px solid rgba(255,255,255,0.1)",
-                        }}
-                      >
-
-                        <p
-                          style={{
-                            margin: 0,
-                            fontFamily: "monospace",
-                            fontSize: "10px",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.2em",
-                            color: "#96ACE0",
-                          }}
-                        >
-                          Summary
-                        </p>
-
-
-                        <p
-                          style={{
-                            maxWidth: "800px",
-                            margin: "20px 0 0",
-                            fontSize: "14px",
-                            lineHeight: 1.8,
-                            color: "rgba(255,255,255,0.6)",
-                          }}
-                        >
-                          {review.reviewResult.summary}
-                        </p>
-
-                      </div>
-
-                    )}
-
-
-                    {/* FINDINGS */}
-
-                    {review.reviewResult.findings && (
-
-                      <div
-                        style={{
-                          padding: "32px 28px",
-                        }}
-                      >
-
-                        <p
-                          style={{
-                            margin: 0,
-                            fontFamily: "monospace",
-                            fontSize: "10px",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.2em",
-                            color: "#96ACE0",
-                          }}
-                        >
-                          Findings
-                        </p>
-
-
-                        <div
-                          style={{
-                            marginTop: "24px",
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: "1px",
-                            backgroundColor:
-                              "rgba(255,255,255,0.1)",
-                          }}
-                        >
-
-                          {review.reviewResult.findings.map(
-                            (finding) => (
-
-                              <div
-                                key={finding.id}
-                                style={{
-                                  padding: "24px",
-                                  backgroundColor:
-                                    "#0b0b0d",
-                                }}
-                              >
-
-                                <div
-                                  style={{
-                                    display: "flex",
-                                    alignItems:
-                                      "center",
-                                    justifyContent:
-                                      "space-between",
-                                    gap: "16px",
-                                  }}
-                                >
-
-                                  <span
-                                    style={{
-                                      fontFamily:
-                                        "monospace",
-                                      fontSize: "10px",
-                                      textTransform:
-                                        "uppercase",
-                                      letterSpacing:
-                                        "0.15em",
-                                      color: "#D5E0FF",
-                                    }}
-                                  >
-                                    {finding.severity}
-                                  </span>
-
-                                  <span
-                                    style={{
-                                      fontFamily:
-                                        "monospace",
-                                      fontSize: "10px",
-                                      color:
-                                        "rgba(255,255,255,0.2)",
-                                    }}
-                                  >
-                                    {finding.id}
-                                  </span>
-
-                                </div>
-
-
-                                <p
-                                  style={{
-                                    margin: "16px 0 0",
-                                    fontSize: "14px",
-                                    lineHeight: 1.8,
-                                    color:
-                                      "rgba(255,255,255,0.7)",
-                                  }}
-                                >
-                                  {finding.message}
-                                </p>
-
-
-                                {finding.suggestion && (
-
-                                  <p
-                                    style={{
-                                      margin: "16px 0 0",
-                                      paddingLeft: "16px",
-                                      borderLeft:
-                                        "1px solid rgba(150,172,224,0.4)",
-                                      fontFamily:
-                                        "monospace",
-                                      fontSize: "12px",
-                                      lineHeight: 1.8,
-                                      color:
-                                        "rgba(255,255,255,0.4)",
-                                    }}
-                                  >
-                                    {finding.suggestion}
-                                  </p>
-
-                                )}
-
-                              </div>
-
-                            )
-                          )}
-
-                        </div>
-                         
-
-
-           
-
-                      </div>
-        
-
-                    )}
-
-
-                    {/* CLOSE ANALYSIS DETAILS */}
-<div
-  style={{
-    padding: "0 28px 28px",
-    display: "flex",
-    justifyContent: "flex-end",
-  }}
->
-  <button
-    onClick={() => setShowPreviousReview(false)}
-    style={{
-      background: "transparent",
-      border: "1px solid rgba(150, 172, 224, 0.45)",
-      color: "#D5E0FF",
-      padding: "12px 22px",
-      fontFamily: "var(--font-syne)",
-      fontSize: "12px",
-      fontWeight: 700,
-      letterSpacing: "0.16em",
-      textTransform: "uppercase",
-      cursor: "pointer",
-    }}
-  >
-    CLOSE REVIEW ×
-  </button>
-</div>
-
-                  </div>
-
-                )}
-
-            </div>
-
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", marginTop: "28px" }}>
+            <Chip
+              color={pullRequest.state === "open" ? "#34d399" : "#9ca3af"}
+              tint={pullRequest.state === "open" ? "rgba(52,211,153,0.08)" : "transparent"}
+            >
+              <span style={{ textTransform: "capitalize" }}>{pullRequest.state}</span>
+            </Chip>
+            <Chip mono>#{pullRequest.number}</Chip>
+            <Chip>{pullRequest.author}</Chip>
+            <Chip mono>
+              {pullRequest.headBranch} <span style={{ color: "#96ACE0" }}>→</span> {pullRequest.baseBranch}
+            </Chip>
+            <Chip>
+              {pullRequest.changedFiles} {pullRequest.changedFiles === 1 ? "file" : "files"}
+            </Chip>
+            <Chip mono>
+              <span style={{ color: "#34d399" }}>+{pullRequest.additions}</span>
+              <span style={{ color: "#ff7b7b" }}>-{pullRequest.deletions}</span>
+            </Chip>
           </div>
-
         </section>
 
-      )}
-
-
- {/* ======================================================= */}
-      {/* REVIEW ACTION */}
-      {/* ======================================================= */}
-
-      <section
-       ref={reviewActionRef}
-        style={{
-          marginTop: "96px",
-          paddingTop: "64px",
-          borderTop: "1px solid rgba(255,255,255,0.1)",
-        }}
-      >
-
+        {/* Two columns: code on the left, review panel on the right */}
         <div
           style={{
             display: "flex",
-            alignItems: "flex-end",
-            justifyContent: "space-between",
+            flexWrap: "wrap",
+            alignItems: "flex-start",
             gap: "32px",
+            marginTop: "56px",
           }}
         >
-
-          {/* LEFT */}
-
-          <div>
-
-            <p
+          {/* Code */}
+          <section style={{ flex: "1 1 640px", minWidth: 0 }}>
+            <div
               style={{
-                margin: 0,
-                fontFamily: "monospace",
-                fontSize: "10px",
-                textTransform: "uppercase",
-                letterSpacing: "0.2em",
-                color: "#96ACE0",
+                display: "flex",
+                alignItems: "flex-end",
+                justifyContent: "space-between",
+                gap: "16px",
+                marginBottom: "24px",
+                paddingBottom: "16px",
+                borderBottom: "1px solid rgba(255,255,255,0.1)",
               }}
             >
-              PRISM ENGINE
-            </p>
-
-
-            <h2
-              style={{
-                margin: "16px 0 0",
-                fontFamily: "var(--font-syne)",
-                fontSize: "50px",
-                fontWeight: 800,
-                lineHeight: 0.95,
-                letterSpacing: "-0.04em",
-                textTransform: "uppercase",
-              }}
-            >
-              RUN
-              <br />
-
-              <span
-                style={{
-                  color: "transparent",
-                  WebkitTextStroke:
-                    "1px rgba(213,224,255,0.75)",
-                }}
-              >
-                ANALYSIS
-              </span>
-            </h2>
-
-          </div>
-
-
-          {/* REVIEW BUTTON */}
-
-          <button
-            disabled={reviewing}
-            style={{
-              position: "relative",
-              display: "flex",
-              alignItems: "center",
-              padding: "20px 32px",
-              backgroundColor: "transparent",
-              border: "1px solid rgba(150,172,224,0.5)",
-              color: "#D5E0FF",
-              cursor: reviewing
-                ? "not-allowed"
-                : "pointer",
-              opacity: reviewing ? 0.4 : 1,
-              fontFamily: "monospace",
-              fontSize: "12px",
-              fontWeight: 700,
-              textTransform: "uppercase",
-              letterSpacing: "0.16em",
-              transition:
-                "border-color 0.3s ease, background-color 0.3s ease",
-            }}
-           onClick={async () => {
-  try {
-    // Forget the previous review for this new run.
-    setLiveReview(null);
-
-    setReviewError("");
-    setShowLoader(true);
-    setReviewing(true);
-
-    const response = await fetch(
-      `/api/repositories/${owner}/${repo}/pulls/${pullNumber}/review`,
-      {
-        method: "POST",
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error(
-        "Could not start the review. Please try again."
-      );
-    }
-
-    // Only start polling after the new review has been created.
-    setPolling(true);
-  } catch (error) {
-    console.error("REVIEW START ERROR:", error);
-
-    setReviewError(
-      error instanceof Error
-        ? error.message
-        : "Could not start the review. Please try again."
-    );
-
-    setReviewing(false);
-    setShowLoader(false);
-  }
-}}
-          >
-
-            <span>
-              {review?.reviewResult
-                ? "Review Again"
-                : "Review PR"}
-            </span>
-
-            <span
-              style={{
-                marginLeft: "20px",
-                fontSize: "18px",
-              }}
-            >
-              ↗
-            </span>
-
-          </button>
-
-        </div>
-
-
-        {/* REVIEW ERROR */}
-
-        {reviewError && (
-
-          <p
-            style={{
-              marginTop: "24px",
-              paddingLeft: "16px",
-              borderLeft:
-                "1px solid rgba(248,113,113,0.5)",
-              fontFamily: "monospace",
-              fontSize: "12px",
-              color: "#f87171",
-            }}
-          >
-            {reviewError}
-          </p>
-
-        )}
-
-      </section>
-
-
-
-            {/* ======================================================= */}
-      {/* PREVIOUS REVIEW */}
-      {/* ======================================================= */}
-
-      {previousReview?.reviewResult && (
-
-        <section
-          style={{
-            marginTop: "96px",
-            paddingTop: "64px",
-            borderTop: "1px solid rgba(255,255,255,0.1)",
-          }}
-        >
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "minmax(0, 1fr) minmax(0, 2fr)",
-              gap: "48px",
-            }}
-          >
-
-            {/* LEFT */}
-
-            <div>
-
-              <p
-                style={{
-                  margin: 0,
-                  fontFamily: "monospace",
-                  fontSize: "10px",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.2em",
-                  color: "#96ACE0",
-                }}
-              >
-                Archived Analysis
-              </p>
-
-
               <h2
                 style={{
-                  margin: "16px 0 0",
+                  margin: 0,
                   fontFamily: "var(--font-syne)",
-                  fontSize: "50px",
+                  fontSize: "28px",
                   fontWeight: 800,
-                  lineHeight: 0.95,
-                  letterSpacing: "-0.04em",
+                  lineHeight: 1,
+                  letterSpacing: "-0.02em",
                   textTransform: "uppercase",
                 }}
               >
-                PREVIOUS
-                <br />
-
-                <span
-                  style={{
-                    color: "transparent",
-                    WebkitTextStroke:
-                      "1px rgba(213,224,255,0.75)",
-                  }}
-                >
-                  REVIEW
-                </span>
+                CODE <span style={outlineText}>DIFF</span>
               </h2>
 
-
-              <p
-                style={{
-                  maxWidth: "380px",
-                  margin: "24px 0 0",
-                  fontFamily: "monospace",
-                  fontSize: "12px",
-                  lineHeight: 1.8,
-                  color: "rgba(255,255,255,0.4)",
-                }}
-              >
-                This is the analysis that came before your latest
-                one. Inspect it to compare the results.
-              </p>
-
-
-              <p
-                style={{
-                  marginTop: "32px",
-                  fontFamily: "monospace",
-                  fontSize: "11px",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.12em",
-                  color: "rgba(255,255,255,0.3)",
-                }}
-              >
-                Last reviewed:{" "}
-                {previousReview.completedAt
-                  ? new Date(
-                      previousReview.completedAt
-                    ).toLocaleDateString()
-                  : "Date unavailable"}
-              </p>
-
+              <span style={{ ...monoLabel, color: "rgba(255,255,255,0.35)" }}>
+                {files.length} file{files.length !== 1 ? "s" : ""}
+              </span>
             </div>
 
+            {files.length === 0 && (
+              <p style={{ margin: 0, padding: "20px", border: "1px solid rgba(255,255,255,0.1)", fontSize: "14px", color: "#9ca3af" }}>
+                No reviewable changes in this pull request.
+              </p>
+            )}
 
-            {/* RIGHT */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+              {files.map((file, index) => {
+                const fileFindings = findings.filter((f) => f.file === file.filename);
 
-            <div>
-
-              {!showArchivedDetails && (
-
-                <button
-                  style={{
-                    width: "100%",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "20px 24px",
-                    backgroundColor: "transparent",
-                    border: "1px solid rgba(255,255,255,0.15)",
-                    color: "#ffffff",
-                    cursor: "pointer",
-                    fontFamily: "monospace",
-                    fontSize: "13px",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.12em",
-                  }}
-                  onClick={() => setShowArchivedDetails(true)}
-                >
-                  <span>
-                    View analysis details
-                  </span>
-
-                  <span
-                    style={{
-                      fontSize: "20px",
-                      color: "#D5E0FF",
-                    }}
-                  >
-                    ↗
-                  </span>
-                </button>
-
-              )}
-
-
-              {showArchivedDetails && (
-
-                <div
-                  style={{
-                    border: "1px solid rgba(255,255,255,0.1)",
-                    backgroundColor: "#0b0b0d",
-                  }}
-                >
-
-                  {/* SCORE */}
-
+                return (
                   <div
-                    style={{
-                      padding: "32px 28px",
-                      borderBottom:
-                        "1px solid rgba(255,255,255,0.1)",
-                    }}
+                    key={file.sha ?? file.filename}
+                    style={{ border: "1px solid rgba(255,255,255,0.1)", backgroundColor: "#0b0b0d" }}
                   >
-
-                    <p
-                      style={{
-                        margin: 0,
-                        fontFamily: "monospace",
-                        fontSize: "10px",
-                        textTransform: "uppercase",
-                        letterSpacing: "0.2em",
-                        color: "rgba(255,255,255,0.3)",
-                      }}
-                    >
-                      Score
-                    </p>
-
-
                     <div
                       style={{
                         display: "flex",
-                        alignItems: "flex-end",
+                        flexWrap: "wrap",
+                        alignItems: "center",
+                        justifyContent: "space-between",
                         gap: "12px",
-                        marginTop: "12px",
+                        padding: "16px 20px",
+                        borderBottom: "1px solid rgba(255,255,255,0.1)",
                       }}
                     >
-
-                      <span
-                        style={{
-                          fontFamily: "var(--font-syne)",
-                          fontSize: "72px",
-                          fontWeight: 800,
-                          lineHeight: 1,
-                          color: "#D5E0FF",
-                        }}
-                      >
-                        {previousReview.reviewResult.score ?? "—"}
-                      </span>
-
-                      <span
-                        style={{
-                          marginBottom: "8px",
-                          fontFamily: "monospace",
-                          fontSize: "13px",
-                          color: "rgba(255,255,255,0.3)",
-                        }}
-                      >
-                        /100
-                      </span>
-
-                    </div>
-
-                  </div>
-
-
-                  {/* SUMMARY */}
-
-                  {previousReview.reviewResult.summary && (
-
-                    <div
-                      style={{
-                        padding: "32px 28px",
-                        borderBottom:
-                          "1px solid rgba(255,255,255,0.1)",
-                      }}
-                    >
-
-                      <p
-                        style={{
-                          margin: 0,
-                          fontFamily: "monospace",
-                          fontSize: "10px",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.2em",
-                          color: "#96ACE0",
-                        }}
-                      >
-                        Summary
-                      </p>
-
-
-                      <p
-                        style={{
-                          maxWidth: "800px",
-                          margin: "20px 0 0",
-                          fontSize: "14px",
-                          lineHeight: 1.8,
-                          color: "rgba(255,255,255,0.6)",
-                        }}
-                      >
-                        {previousReview.reviewResult.summary}
-                      </p>
-
-                    </div>
-
-                  )}
-
-
-                  {/* FINDINGS */}
-
-                  {Array.isArray(previousReview.reviewResult.findings) &&
-                    previousReview.reviewResult.findings.length > 0 && (
-
-                    <div
-                      style={{
-                        padding: "32px 28px",
-                      }}
-                    >
-
-                      <p
-                        style={{
-                          margin: 0,
-                          fontFamily: "monospace",
-                          fontSize: "10px",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.2em",
-                          color: "#96ACE0",
-                        }}
-                      >
-                        Findings
-                      </p>
-
+                      <div style={{ display: "flex", alignItems: "center", gap: "14px", minWidth: 0 }}>
+                        <span style={{ fontFamily: "monospace", fontSize: "12px", color: "#96ACE0" }}>
+                          /{String(index + 1).padStart(2, "0")}
+                        </span>
+                        <h3
+                          style={{
+                            margin: 0,
+                            overflowWrap: "anywhere",
+                            fontFamily: "monospace",
+                            fontSize: "13px",
+                            fontWeight: 400,
+                          }}
+                        >
+                          {file.filename}
+                        </h3>
+                      </div>
 
                       <div
                         style={{
-                          marginTop: "24px",
                           display: "flex",
-                          flexDirection: "column",
-                          gap: "1px",
-                          backgroundColor:
-                            "rgba(255,255,255,0.1)",
+                          alignItems: "center",
+                          gap: "16px",
+                          fontFamily: "monospace",
+                          fontSize: "11px",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.12em",
                         }}
                       >
-
-                        {previousReview.reviewResult.findings.map(
-                          (finding, index) => (
-
-                            <div
-                              key={finding.id ?? index}
-                              style={{
-                                padding: "24px",
-                                backgroundColor: "#0b0b0d",
-                              }}
-                            >
-
-                              <div
-                                style={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  justifyContent: "space-between",
-                                  gap: "16px",
-                                }}
-                              >
-
-                                <span
-                                  style={{
-                                    fontFamily: "monospace",
-                                    fontSize: "10px",
-                                    textTransform: "uppercase",
-                                    letterSpacing: "0.15em",
-                                    color: "#D5E0FF",
-                                  }}
-                                >
-                                  {finding.severity}
-                                </span>
-
-                                <span
-                                  style={{
-                                    fontFamily: "monospace",
-                                    fontSize: "10px",
-                                    color: "rgba(255,255,255,0.2)",
-                                  }}
-                                >
-                                  {finding.id}
-                                </span>
-
-                              </div>
-
-
-                              <p
-                                style={{
-                                  margin: "16px 0 0",
-                                  fontSize: "14px",
-                                  lineHeight: 1.8,
-                                  color: "rgba(255,255,255,0.7)",
-                                }}
-                              >
-                                {finding.message}
-                              </p>
-
-
-                              {finding.suggestion && (
-
-                                <p
-                                  style={{
-                                    margin: "16px 0 0",
-                                    paddingLeft: "16px",
-                                    borderLeft:
-                                      "1px solid rgba(150,172,224,0.4)",
-                                    fontFamily: "monospace",
-                                    fontSize: "12px",
-                                    lineHeight: 1.8,
-                                    color: "rgba(255,255,255,0.4)",
-                                  }}
-                                >
-                                  {finding.suggestion}
-                                </p>
-
-                              )}
-
-                            </div>
-
-                          )
+                        {fileFindings.length > 0 && (
+                          <span style={{ color: "#96ACE0" }}>
+                            {fileFindings.length} finding{fileFindings.length !== 1 ? "s" : ""}
+                          </span>
                         )}
-
+                        <span style={{ color: "rgba(255,255,255,0.35)" }}>{file.status}</span>
+                        <span style={{ color: "#34d399" }}>+{file.additions}</span>
+                        <span style={{ color: "#ff7b7b" }}>-{file.deletions}</span>
                       </div>
-
                     </div>
 
-                  )}
-
-
-                  {/* CLOSE ANALYSIS DETAILS */}
-
-                  <div
-                    style={{
-                      padding: "0 28px 28px",
-                      display: "flex",
-                      justifyContent: "flex-end",
-                    }}
-                  >
-                    <button
-                      onClick={() => setShowArchivedDetails(false)}
-                      style={{
-                        background: "transparent",
-                        border: "1px solid rgba(150, 172, 224, 0.45)",
-                        color: "#D5E0FF",
-                        padding: "12px 22px",
-                        fontFamily: "var(--font-syne)",
-                        fontSize: "12px",
-                        fontWeight: 700,
-                        letterSpacing: "0.16em",
-                        textTransform: "uppercase",
-                        cursor: "pointer",
-                      }}
-                    >
-                      CLOSE REVIEW ×
-                    </button>
+                    {file.patch ? (
+                      <DiffViewer patch={file.patch} findings={fileFindings} hideFileLevel />
+                    ) : (
+                      <p style={{ margin: 0, padding: "20px", fontSize: "13px", color: "#6b7280" }}>
+                        No diff available for this file.
+                      </p>
+                    )}
                   </div>
-
-                </div>
-
-              )}
-
+                );
+              })}
             </div>
+          </section>
 
-          </div>
-
-        </section>
-
-      )}
-
-
-     
-
-    </div>
-
-  </main>
-);
+          {/* Review panel */}
+          <ReviewPanel
+            review={review}
+            previousReview={previousReview}
+            reviewing={reviewing}
+            reviewError={reviewError}
+            showPrevious={showPrevious}
+            onTogglePrevious={() => setShowPrevious((value) => !value)}
+            onRun={startReview}
+          />
+        </div>
+      </div>
+    </main>
+  );
 }
